@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gera dashboard HTML a partir do relatório de custo."""
+"""Gera dashboard HTML interativo a partir do relatório de custo."""
 
 from __future__ import annotations
 
@@ -16,231 +16,54 @@ def br_money(v: float | None) -> str:
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def br_pct(v: float | None) -> str:
-    if v is None or (isinstance(v, float) and pd.isna(v)):
-        return "—"
-    return f"{v * 100:,.1f}%".replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def br_int(v: float | int) -> str:
-    return f"{int(v):,}".replace(",", ".")
-
-
-def build_payload(df: pd.DataFrame) -> dict:
-    df = df.copy()
-    df["dt"] = pd.to_datetime(df["Data de emissão"], dayfirst=True, errors="coerce")
-    ok = df[df["Status custo"] == "ok"].copy()
-    inc = df[df["Status custo"] != "ok"].copy()
-
-    venda_total = float(df["Valor total venda"].sum(skipna=True))
-    custo_ok = float(ok["Custo total item"].sum(skipna=True))
-    liq_ok = float(ok["Venda líquida"].sum(skipna=True))
-    frete_ok = float(ok["Frete (3%)"].sum(skipna=True))
-    imposto_ok = float(ok["Imposto (9,2%)"].sum(skipna=True))
-    margem = (liq_ok / custo_ok) if custo_ok else None
-
-    por_seg = (
-        df.groupby("Segmento", dropna=False)
-        .agg(
-            itens=("Status custo", "size"),
-            ok=("Status custo", lambda s: int((s == "ok").sum())),
-            incompleto=("Status custo", lambda s: int((s != "ok").sum())),
-            venda=("Valor total venda", "sum"),
-            custo=("Custo total item", "sum"),
-            liquida=("Venda líquida", "sum"),
-        )
-        .reset_index()
-        .fillna(0)
-        .sort_values("venda", ascending=False)
-    )
-
-    ok["ym"] = ok["dt"].dt.to_period("M").astype(str)
-    mensal = (
-        ok.dropna(subset=["dt"])
-        .groupby("ym")
-        .agg(
-            venda=("Valor total venda", "sum"),
-            custo=("Custo total item", "sum"),
-            liquida=("Venda líquida", "sum"),
-        )
-        .reset_index()
-        .sort_values("ym")
-    )
-
-    uf = (
-        ok.groupby("UF", dropna=False)["Valor total venda"]
-        .sum()
-        .sort_values(ascending=False)
-        .head(8)
-        .reset_index()
-    )
-
-    # Pendências simplificadas (primeira tag)
-    pend = inc["Pendências"].fillna("").astype(str)
-    pend_simple = pend.map(lambda x: x.split(";")[0] if x else "não informado")
-    pend_map = {
-        "custo_rs": "Sem custo em Custos_RS",
-        "tubete": "Tubete não identificado",
-        "material": "Material não identificado",
-        "qtd_rolo": "Qtd. do rolo não identificada",
-        "segmento_sem_regra": "Segmento sem regra de custo",
-        "dimensao": "Dimensão não identificada",
-        "tubete_sem_preco(2.5)": "Tubete 2,5\" sem preço",
-        "codigo": "Código ausente",
-        "quantidade_nf": "Quantidade da NF ausente",
-        "valor_venda": "Valor de venda ausente",
-    }
-    pend_labels = pend_simple.map(lambda x: pend_map.get(x, x if x else "não informado"))
-    pend_counts = pend_labels.value_counts().head(8).reset_index()
-    pend_counts.columns = ["motivo", "qtd"]
-
-    top_clientes = (
-        ok.groupby("Nome", dropna=False)
-        .agg(
-            venda=("Valor total venda", "sum"),
-            custo=("Custo total item", "sum"),
-            liquida=("Venda líquida", "sum"),
-            itens=("Número", "count"),
-        )
-        .reset_index()
-        .sort_values("venda", ascending=False)
-        .head(10)
-    )
-    top_clientes["lucro_pct"] = top_clientes.apply(
-        lambda r: (r["liquida"] / r["custo"]) if r["custo"] else None, axis=1
-    )
-
-    mat = (
-        ok[ok["Material"].notna()]
-        .groupby("Material")
-        .agg(itens=("Material", "size"), custo=("Custo total item", "sum"), venda=("Valor total venda", "sum"))
-        .reset_index()
-        .sort_values("venda", ascending=False)
-    )
-
-    dt_min = df["dt"].min()
-    dt_max = df["dt"].max()
-    periodo = (
-        f"{dt_min.strftime('%d/%m/%Y')} a {dt_max.strftime('%d/%m/%Y')}"
-        if pd.notna(dt_min) and pd.notna(dt_max)
-        else "Período não disponível"
-    )
-
-    return {
-        "periodo": periodo,
-        "kpis": {
-            "itens": int(len(df)),
-            "ok": int(len(ok)),
-            "incompleto": int(len(inc)),
-            "cobertura": float(len(ok) / len(df)) if len(df) else 0,
-            "venda_total": venda_total,
-            "custo_ok": custo_ok,
-            "liquida_ok": liq_ok,
-            "frete_ok": frete_ok,
-            "imposto_ok": imposto_ok,
-            "lucro_pct": margem,
-        },
-        "segmentos": {
-            "labels": por_seg["Segmento"].astype(str).tolist(),
-            "venda": [float(x) for x in por_seg["venda"]],
-            "custo": [float(x) for x in por_seg["custo"]],
-            "liquida": [float(x) for x in por_seg["liquida"]],
-            "ok": [int(x) for x in por_seg["ok"]],
-            "incompleto": [int(x) for x in por_seg["incompleto"]],
-        },
-        "mensal": {
-            "labels": mensal["ym"].tolist(),
-            "venda": [float(x) for x in mensal["venda"]],
-            "custo": [float(x) for x in mensal["custo"]],
-            "liquida": [float(x) for x in mensal["liquida"]],
-        },
-        "uf": {
-            "labels": uf["UF"].astype(str).tolist(),
-            "venda": [float(x) for x in uf["Valor total venda"]],
-        },
-        "pendencias": {
-            "labels": pend_counts["motivo"].tolist(),
-            "qtd": [int(x) for x in pend_counts["qtd"]],
-        },
-        "materiais": {
-            "labels": mat["Material"].astype(str).tolist(),
-            "venda": [float(x) for x in mat["venda"]],
-            "custo": [float(x) for x in mat["custo"]],
-            "itens": [int(x) for x in mat["itens"]],
-        },
-        "top_clientes": [
-            {
-                "nome": str(r["Nome"])[:48],
-                "itens": int(r["itens"]),
-                "venda": float(r["venda"]),
-                "custo": float(r["custo"]),
-                "liquida": float(r["liquida"]),
-                "lucro_pct": float(r["lucro_pct"]) if pd.notna(r["lucro_pct"]) else None,
-            }
-            for _, r in top_clientes.iterrows()
-        ],
-        "format": {
-            "venda_total": br_money(venda_total),
-            "custo_ok": br_money(custo_ok),
-            "liquida_ok": br_money(liq_ok),
-            "frete_ok": br_money(frete_ok),
-            "imposto_ok": br_money(imposto_ok),
-            "lucro_pct": br_pct(margem),
-            "cobertura": br_pct(len(ok) / len(df) if len(df) else 0),
-            "itens": br_int(len(df)),
-            "ok": br_int(len(ok)),
-            "incompleto": br_int(len(inc)),
-        },
-    }
-
-
-def render_html(payload: dict) -> str:
-    data_json = json.dumps(payload, ensure_ascii=False)
-    f = payload["format"]
-    k = payload["kpis"]
-
+def build_rows(df: pd.DataFrame) -> list[dict]:
     rows = []
-    for c in payload["top_clientes"]:
+    dts = pd.to_datetime(df["Data de emissão"], dayfirst=True, errors="coerce")
+    for i, r in df.iterrows():
+        dt = dts.loc[i]
         rows.append(
-            "<tr>"
-            f"<td>{c['nome']}</td>"
-            f"<td>{br_int(c['itens'])}</td>"
-            f"<td>{br_money(c['venda'])}</td>"
-            f"<td>{br_money(c['custo'])}</td>"
-            f"<td>{br_money(c['liquida'])}</td>"
-            f"<td>{br_pct(c['lucro_pct'])}</td>"
-            "</tr>"
+            {
+                "n": None if pd.isna(r.get("Número")) else str(r.get("Número")),
+                "c": None if pd.isna(r.get("Nome")) else str(r.get("Nome"))[:70],
+                "d": None if pd.isna(dt) else dt.strftime("%Y-%m-%d"),
+                "uf": None if pd.isna(r.get("UF")) else str(r.get("UF")),
+                "cod": None if pd.isna(r.get("Código")) else str(r.get("Código")),
+                "desc": None
+                if pd.isna(r.get("Descrição"))
+                else str(r.get("Descrição"))[:100],
+                "seg": None if pd.isna(r.get("Segmento")) else str(r.get("Segmento")),
+                "mat": None if pd.isna(r.get("Material")) else str(r.get("Material")),
+                "v": None
+                if pd.isna(r.get("Valor total venda"))
+                else round(float(r.get("Valor total venda")), 2),
+                "ct": None
+                if pd.isna(r.get("Custo total item"))
+                else round(float(r.get("Custo total item")), 2),
+                "f": None
+                if pd.isna(r.get("Frete (3%)"))
+                else round(float(r.get("Frete (3%)")), 2),
+                "i": None
+                if pd.isna(r.get("Imposto (9,2%)"))
+                else round(float(r.get("Imposto (9,2%)")), 2),
+                "l": None
+                if pd.isna(r.get("Venda líquida"))
+                else round(float(r.get("Venda líquida")), 2),
+                "p": None if pd.isna(r.get("% Lucro")) else round(float(r.get("% Lucro")), 4),
+                "st": "ok" if r.get("Status custo") == "ok" else "inc",
+            }
         )
-    clientes_html = "\n".join(rows)
+    return rows
 
-    seg_cards = []
-    for i, label in enumerate(payload["segmentos"]["labels"]):
-        venda = payload["segmentos"]["venda"][i]
-        ok_n = payload["segmentos"]["ok"][i]
-        inc_n = payload["segmentos"]["incompleto"][i]
-        total = ok_n + inc_n
-        cov = (ok_n / total) if total else 0
-        seg_cards.append(
-            f"""
-            <article class="seg-card">
-              <h3>{label}</h3>
-              <p class="seg-venda">{br_money(venda)}</p>
-              <div class="seg-meta">
-                <span>{br_int(ok_n)} ok</span>
-                <span>{br_int(inc_n)} incompleto</span>
-              </div>
-              <div class="bar"><i style="--w:{cov*100:.1f}%"></i></div>
-              <small>Cobertura {br_pct(cov)}</small>
-            </article>
-            """
-        )
+
+def render_html(rows: list[dict], periodo_label: str) -> str:
+    data_json = json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
 
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>RibbonTech · Dashboard de Custo e Lucro</title>
+  <title>RibbonTech · Dashboard Interativo de Custo e Lucro</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Sora:wght@500;600;700&display=swap" rel="stylesheet" />
@@ -250,360 +73,225 @@ def render_html(payload: dict) -> str:
       --ink: #14212b;
       --ink-soft: #2a3b49;
       --mist: #e6eef3;
-      --panel: rgba(255,255,255,0.78);
+      --panel: rgba(255,255,255,0.82);
       --line: rgba(20,33,43,0.12);
       --teal: #1f6f78;
       --teal-deep: #14545c;
       --copper: #c45c26;
-      --copper-soft: #f0d2c2;
       --good: #1f7a4c;
-      --warn: #a15c12;
       --shadow: 0 18px 50px rgba(20,33,43,0.12);
-      --radius: 18px;
+      --radius: 16px;
     }}
-
     * {{ box-sizing: border-box; }}
-    html {{ scroll-behavior: smooth; }}
     body {{
       margin: 0;
       font-family: "IBM Plex Sans", sans-serif;
       color: var(--ink);
       background:
-        radial-gradient(1200px 600px at 10% -10%, rgba(31,111,120,0.22), transparent 55%),
-        radial-gradient(900px 500px at 90% 0%, rgba(196,92,38,0.16), transparent 50%),
-        linear-gradient(180deg, #d9e5ec 0%, var(--mist) 40%, #f4f7f9 100%);
+        radial-gradient(1100px 520px at 8% -8%, rgba(31,111,120,0.22), transparent 55%),
+        radial-gradient(900px 480px at 95% 0%, rgba(196,92,38,0.15), transparent 50%),
+        linear-gradient(180deg, #d9e5ec 0%, var(--mist) 42%, #f4f7f9 100%);
       min-height: 100vh;
     }}
-
     body::before {{
       content: "";
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      opacity: 0.035;
+      position: fixed; inset: 0; pointer-events: none; opacity: 0.03; z-index: 0;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
-      z-index: 0;
     }}
-
-    .wrap {{
-      position: relative;
-      z-index: 1;
-      width: min(1180px, calc(100% - 2rem));
-      margin: 0 auto;
-      padding: 1.5rem 0 3rem;
-    }}
+    .wrap {{ position: relative; z-index: 1; width: min(1240px, calc(100% - 1.5rem)); margin: 0 auto; padding: 1.2rem 0 2.5rem; }}
 
     .hero {{
-      display: grid;
-      gap: 1.25rem;
-      padding: 1.6rem 1.6rem 1.4rem;
-      border-radius: 28px;
-      background:
-        linear-gradient(135deg, rgba(20,33,43,0.96), rgba(31,111,120,0.88) 58%, rgba(196,92,38,0.72));
+      padding: 1.35rem 1.4rem 1.2rem;
+      border-radius: 24px;
+      background: linear-gradient(135deg, rgba(20,33,43,0.96), rgba(31,111,120,0.88) 58%, rgba(196,92,38,0.7));
       color: #f7fafc;
       box-shadow: var(--shadow);
-      overflow: hidden;
-      position: relative;
-      animation: rise 0.7s ease both;
+      animation: rise .6s ease both;
     }}
+    .brand {{ font-family: Sora, sans-serif; font-size: clamp(1.8rem, 4.5vw, 2.6rem); margin: 0; letter-spacing: -0.03em; }}
+    .hero p {{ margin: .35rem 0 0; color: rgba(247,250,252,.86); max-width: 60ch; }}
+    .period {{ display: inline-flex; margin-top: .75rem; padding: .3rem .65rem; border: 1px solid rgba(255,255,255,.22); border-radius: 999px; font-size: .84rem; }}
 
-    .hero::after {{
-      content: "";
-      position: absolute;
-      right: -80px;
-      top: -60px;
-      width: 280px;
-      height: 280px;
-      border-radius: 50%;
-      background: radial-gradient(circle, rgba(255,255,255,0.18), transparent 65%);
-    }}
-
-    .brand {{
-      font-family: Sora, sans-serif;
-      font-size: clamp(2rem, 5vw, 3rem);
-      font-weight: 700;
-      letter-spacing: -0.03em;
-      margin: 0;
-      line-height: 1.05;
-    }}
-
-    .hero p {{
-      margin: 0.35rem 0 0;
-      max-width: 46ch;
-      color: rgba(247,250,252,0.86);
-      font-size: 1.02rem;
-    }}
-
-    .period {{
-      display: inline-flex;
-      margin-top: 0.9rem;
-      padding: 0.35rem 0.7rem;
-      border: 1px solid rgba(255,255,255,0.22);
-      border-radius: 999px;
-      font-size: 0.86rem;
-      color: rgba(247,250,252,0.9);
-    }}
-
-    .kpi-grid {{
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 0.85rem;
-      margin-top: 0.4rem;
-    }}
-
+    .kpi-grid {{ display: grid; grid-template-columns: repeat(5, 1fr); gap: .7rem; margin-top: 1rem; }}
     .kpi {{
-      background: rgba(255,255,255,0.1);
-      border: 1px solid rgba(255,255,255,0.14);
-      border-radius: 16px;
-      padding: 0.9rem 1rem;
-      backdrop-filter: blur(6px);
-      animation: rise 0.8s ease both;
+      background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.14);
+      border-radius: 14px; padding: .75rem .85rem;
     }}
-    .kpi:nth-child(2) {{ animation-delay: 0.06s; }}
-    .kpi:nth-child(3) {{ animation-delay: 0.12s; }}
-    .kpi:nth-child(4) {{ animation-delay: 0.18s; }}
+    .kpi span {{ display: block; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: rgba(247,250,252,.72); margin-bottom: .25rem; }}
+    .kpi strong {{ font-family: Sora, sans-serif; font-size: clamp(1rem, 2vw, 1.35rem); font-weight: 600; }}
 
-    .kpi span {{
-      display: block;
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: rgba(247,250,252,0.72);
-      margin-bottom: 0.35rem;
-    }}
-    .kpi strong {{
-      font-family: Sora, sans-serif;
-      font-size: clamp(1.15rem, 2.4vw, 1.55rem);
-      font-weight: 600;
-      letter-spacing: -0.02em;
-    }}
-
-    section {{
-      margin-top: 1.4rem;
-      animation: rise 0.75s ease both;
-    }}
-
-    .section-head {{
-      display: flex;
-      justify-content: space-between;
-      align-items: end;
-      gap: 1rem;
-      margin-bottom: 0.8rem;
-    }}
-    .section-head h2 {{
-      font-family: Sora, sans-serif;
-      font-size: 1.35rem;
-      margin: 0;
-      letter-spacing: -0.02em;
-    }}
-    .section-head p {{
-      margin: 0.2rem 0 0;
-      color: var(--ink-soft);
-      font-size: 0.95rem;
-    }}
-
-    .panel {{
+    .filters {{
+      margin-top: 1rem;
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
-      padding: 1rem 1.1rem 1.15rem;
+      padding: 1rem;
       backdrop-filter: blur(10px);
+      animation: rise .7s ease both;
     }}
-
-    .grid-2 {{
+    .filters h2 {{ font-family: Sora, sans-serif; font-size: 1.05rem; margin: 0 0 .75rem; }}
+    .filter-grid {{
       display: grid;
-      grid-template-columns: 1.2fr 1fr;
-      gap: 1rem;
+      grid-template-columns: repeat(4, 1fr);
+      gap: .7rem;
     }}
-    .grid-3 {{
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 1rem;
-    }}
-
-    .chart-box {{
-      position: relative;
-      height: 300px;
-    }}
-    .chart-box.tall {{ height: 340px; }}
-
-    .seg-grid {{
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 0.85rem;
-    }}
-    .seg-card {{
-      background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0.65));
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 0.95rem 1rem;
-      transition: transform 0.25s ease, box-shadow 0.25s ease;
-    }}
-    .seg-card:hover {{
-      transform: translateY(-3px);
-      box-shadow: 0 14px 30px rgba(20,33,43,0.1);
-    }}
-    .seg-card h3 {{
-      margin: 0;
-      font-family: Sora, sans-serif;
-      font-size: 1rem;
-    }}
-    .seg-venda {{
-      margin: 0.45rem 0 0.55rem;
-      font-family: Sora, sans-serif;
-      font-size: 1.2rem;
-      font-weight: 600;
-      color: var(--teal-deep);
-    }}
-    .seg-meta {{
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.82rem;
-      color: var(--ink-soft);
-      margin-bottom: 0.45rem;
-    }}
-    .bar {{
-      height: 7px;
-      background: rgba(20,33,43,0.08);
-      border-radius: 999px;
-      overflow: hidden;
-    }}
-    .bar i {{
-      display: block;
-      height: 100%;
-      width: var(--w);
-      background: linear-gradient(90deg, var(--teal), #3aa0ab);
-      border-radius: inherit;
-      transform-origin: left;
-      animation: fillBar 1.1s ease both;
-    }}
-    .seg-card small {{
-      display: block;
-      margin-top: 0.4rem;
-      color: var(--ink-soft);
-    }}
-
-    table {{
+    label {{ display: grid; gap: .28rem; font-size: .78rem; color: var(--ink-soft); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }}
+    input, select {{
       width: 100%;
-      border-collapse: collapse;
-      font-size: 0.92rem;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: .55rem .65rem;
+      font: 500 0.92rem "IBM Plex Sans", sans-serif;
+      color: var(--ink);
+      background: #fff;
     }}
-    th, td {{
-      text-align: left;
-      padding: 0.7rem 0.45rem;
-      border-bottom: 1px solid var(--line);
+    input:focus, select:focus {{ outline: 2px solid rgba(31,111,120,.35); border-color: var(--teal); }}
+    .filter-actions {{ display: flex; flex-wrap: wrap; gap: .55rem; margin-top: .85rem; align-items: center; }}
+    button {{
+      border: 0; border-radius: 999px; padding: .55rem 1rem;
+      font: 600 0.9rem "IBM Plex Sans", sans-serif; cursor: pointer;
+      transition: transform .15s ease, opacity .15s ease;
     }}
-    th {{
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--ink-soft);
-      font-weight: 600;
+    button:hover {{ transform: translateY(-1px); }}
+    .btn-primary {{ background: var(--teal); color: #fff; }}
+    .btn-ghost {{ background: rgba(20,33,43,.08); color: var(--ink); }}
+    .chip {{
+      display: inline-flex; align-items: center; gap: .35rem;
+      background: rgba(31,111,120,.12); color: var(--teal-deep);
+      border-radius: 999px; padding: .35rem .7rem; font-size: .82rem; font-weight: 600;
     }}
-    tr:hover td {{ background: rgba(31,111,120,0.05); }}
+    .chip button {{
+      all: unset; cursor: pointer; color: var(--copper); font-weight: 700; padding: 0 .2rem;
+    }}
+    .hint {{ margin: .55rem 0 0; color: var(--ink-soft); font-size: .84rem; }}
 
-    .legend-note {{
-      margin-top: 0.8rem;
-      color: var(--ink-soft);
-      font-size: 0.88rem;
+    section {{ margin-top: 1.15rem; animation: rise .75s ease both; }}
+    .section-head {{ display: flex; justify-content: space-between; gap: 1rem; align-items: end; margin-bottom: .7rem; }}
+    .section-head h2 {{ font-family: Sora, sans-serif; font-size: 1.2rem; margin: 0; letter-spacing: -.02em; }}
+    .section-head p {{ margin: .2rem 0 0; color: var(--ink-soft); font-size: .92rem; }}
+    .panel {{
+      background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: 1rem; backdrop-filter: blur(10px);
     }}
+    .grid-2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; }}
+    .chart-box {{ position: relative; height: 300px; }}
+    .chart-box.tall {{ height: 340px; }}
+    .click-note {{ margin-top: .55rem; font-size: .82rem; color: var(--ink-soft); }}
 
-    .footer {{
-      margin-top: 1.6rem;
-      color: var(--ink-soft);
-      font-size: 0.85rem;
-      text-align: center;
-    }}
+    table {{ width: 100%; border-collapse: collapse; font-size: .9rem; }}
+    th, td {{ text-align: left; padding: .62rem .4rem; border-bottom: 1px solid var(--line); vertical-align: top; }}
+    th {{ font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); }}
+    tr.item-row {{ cursor: pointer; }}
+    tr.item-row:hover td, tr.item-row.active td {{ background: rgba(31,111,120,.08); }}
+    .neg {{ color: #a12828; font-weight: 600; }}
+    .pos {{ color: var(--good); font-weight: 600; }}
+    .table-wrap {{ overflow: auto; max-height: 420px; }}
+    .footer {{ margin-top: 1.4rem; text-align: center; color: var(--ink-soft); font-size: .84rem; }}
 
     @keyframes rise {{
-      from {{ opacity: 0; transform: translateY(14px); }}
+      from {{ opacity: 0; transform: translateY(12px); }}
       to {{ opacity: 1; transform: translateY(0); }}
     }}
-    @keyframes fillBar {{
-      from {{ transform: scaleX(0); }}
-      to {{ transform: scaleX(1); }}
-    }}
 
-    @media (max-width: 920px) {{
-      .kpi-grid, .grid-2, .grid-3, .seg-grid {{
-        grid-template-columns: 1fr 1fr;
-      }}
+    @media (max-width: 980px) {{
+      .kpi-grid, .filter-grid, .grid-2 {{ grid-template-columns: 1fr 1fr; }}
     }}
     @media (max-width: 640px) {{
-      .wrap {{ width: min(100% - 1.2rem, 1180px); }}
-      .kpi-grid, .grid-2, .grid-3, .seg-grid {{
-        grid-template-columns: 1fr;
-      }}
-      .chart-box, .chart-box.tall {{ height: 260px; }}
-      table {{ font-size: 0.82rem; }}
-      th:nth-child(2), td:nth-child(2) {{ display: none; }}
+      .kpi-grid, .filter-grid, .grid-2 {{ grid-template-columns: 1fr; }}
+      .chart-box, .chart-box.tall {{ height: 250px; }}
     }}
   </style>
 </head>
 <body>
   <div class="wrap">
     <header class="hero">
-      <div>
-        <h1 class="brand">RibbonTech</h1>
-        <p>Dashboard de custo, frete, imposto e lucro do faturamento — visão executiva dos resultados calculados.</p>
-        <div class="period">Período: {payload["periodo"]}</div>
-      </div>
+      <h1 class="brand">RibbonTech</h1>
+      <p>Dashboard interativo de faturamento, custo e lucro. Use os filtros ou clique nos gráficos para explorar.</p>
+      <div class="period">Base completa: {periodo_label}</div>
       <div class="kpi-grid">
-        <div class="kpi"><span>Venda total</span><strong>{f["venda_total"]}</strong></div>
-        <div class="kpi"><span>Custo calculado</span><strong>{f["custo_ok"]}</strong></div>
-        <div class="kpi"><span>Venda líquida</span><strong>{f["liquida_ok"]}</strong></div>
-        <div class="kpi"><span>% Lucro</span><strong>{f["lucro_pct"]}</strong></div>
+        <div class="kpi"><span>Venda</span><strong id="kpiVenda">—</strong></div>
+        <div class="kpi"><span>Custo</span><strong id="kpiCusto">—</strong></div>
+        <div class="kpi"><span>Venda líquida</span><strong id="kpiLiq">—</strong></div>
+        <div class="kpi"><span>% Lucro</span><strong id="kpiLucro">—</strong></div>
+        <div class="kpi"><span>Itens filtrados</span><strong id="kpiItens">—</strong></div>
       </div>
     </header>
 
-    <section>
-      <div class="section-head">
-        <div>
-          <h2>Cobertura do cálculo</h2>
-          <p>{f["ok"]} itens com custo ok · {f["incompleto"]} custo incompleto · cobertura {f["cobertura"]}</p>
-        </div>
+    <section class="filters">
+      <h2>Filtros</h2>
+      <div class="filter-grid">
+        <label>Data início<input type="date" id="fInicio" /></label>
+        <label>Data fim<input type="date" id="fFim" /></label>
+        <label>Segmento
+          <select id="fSegmento"><option value="">Todos</option></select>
+        </label>
+        <label>Cliente
+          <select id="fCliente"><option value="">Todos</option></select>
+        </label>
+        <label>UF
+          <select id="fUF"><option value="">Todas</option></select>
+        </label>
+        <label>Material
+          <select id="fMaterial"><option value="">Todos</option></select>
+        </label>
+        <label>Status do custo
+          <select id="fStatus">
+            <option value="">Todos</option>
+            <option value="ok">Custo ok</option>
+            <option value="inc">Custo incompleto</option>
+          </select>
+        </label>
+        <label>Faixa de % lucro
+          <select id="fLucroFaixa">
+            <option value="">Todas</option>
+            <option value="neg">Prejuízo (&lt; 0%)</option>
+            <option value="0-20">0% a 20%</option>
+            <option value="20-50">20% a 50%</option>
+            <option value="50+">Acima de 50%</option>
+            <option value="na">Sem % (incompleto)</option>
+          </select>
+        </label>
+        <label>Busca cliente / código / descrição
+          <input type="search" id="fBusca" placeholder="Ex.: Ribbon, MG, 300443..." />
+        </label>
+        <label>Mês selecionado (clique no gráfico)
+          <input type="month" id="fMes" />
+        </label>
+        <label>Top N clientes na tabela
+          <select id="fTopN">
+            <option value="10">10</option>
+            <option value="20">20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
+        <label>Itens por página
+          <select id="fPageSize">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
       </div>
-      <div class="grid-3">
-        <article class="panel">
-          <div class="chart-box"><canvas id="chartCobertura"></canvas></div>
-          <p class="legend-note">Itens válidos (sem NF cancelada/rejeitada/denegada): {f["itens"]}.</p>
-        </article>
-        <article class="panel">
-          <div class="chart-box"><canvas id="chartPendencias"></canvas></div>
-          <p class="legend-note">Principais motivos de “custo incompleto”.</p>
-        </article>
-        <article class="panel">
-          <div class="chart-box"><canvas id="chartComposicao"></canvas></div>
-          <p class="legend-note">Sobre itens com custo ok: frete {f["frete_ok"]} · imposto {f["imposto_ok"]}.</p>
-        </article>
+      <div class="filter-actions">
+        <button class="btn-primary" id="btnAplicar" type="button">Aplicar filtros</button>
+        <button class="btn-ghost" id="btnLimpar" type="button">Limpar filtros</button>
+        <span class="chip" id="activeChips" hidden></span>
       </div>
+      <p class="hint">Dica: clique numa coluna do gráfico mensal ou numa barra de segmento para filtrar. Clique de novo para remover.</p>
     </section>
 
     <section>
       <div class="section-head">
         <div>
-          <h2>Desempenho por segmento</h2>
-          <p>Venda, custo e venda líquida nos itens com cálculo completo.</p>
-        </div>
-      </div>
-      <div class="seg-grid">
-        {''.join(seg_cards)}
-      </div>
-      <div class="panel" style="margin-top:1rem;">
-        <div class="chart-box tall"><canvas id="chartSegmento"></canvas></div>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-head">
-        <div>
-          <h2>Evolução mensal</h2>
-          <p>Venda, custo e venda líquida ao longo do tempo (somente itens ok).</p>
+          <h2>Venda mensal no período</h2>
+          <p>Gráfico de colunas — clique no mês para filtrar.</p>
         </div>
       </div>
       <div class="panel">
-        <div class="chart-box tall"><canvas id="chartMensal"></canvas></div>
+        <div class="chart-box tall"><canvas id="chartVendaMensal"></canvas></div>
+        <p class="click-note" id="mesNote">Nenhum mês selecionado.</p>
       </div>
     </section>
 
@@ -611,23 +299,58 @@ def render_html(payload: dict) -> str:
       <div>
         <div class="section-head">
           <div>
-            <h2>Top UFs</h2>
-            <p>Maiores volumes de venda com custo calculado.</p>
+            <h2>Lucro por mês</h2>
+            <p>Venda líquida mensal dos itens filtrados.</p>
           </div>
         </div>
         <div class="panel">
-          <div class="chart-box"><canvas id="chartUF"></canvas></div>
+          <div class="chart-box"><canvas id="chartLucroMensal"></canvas></div>
         </div>
       </div>
       <div>
         <div class="section-head">
           <div>
-            <h2>Materiais de etiqueta</h2>
-            <p>Participação por substrato nos itens ok.</p>
+            <h2>Faturamento por segmento</h2>
+            <p>Clique no segmento para filtrar.</p>
           </div>
         </div>
         <div class="panel">
-          <div class="chart-box"><canvas id="chartMaterial"></canvas></div>
+          <div class="chart-box"><canvas id="chartSegmento"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div>
+        <div class="section-head">
+          <div>
+            <h2>Top clientes</h2>
+            <p>Clique na linha para filtrar por cliente.</p>
+          </div>
+        </div>
+        <div class="panel table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th>Venda</th>
+                <th>Lucro</th>
+                <th>% Lucro</th>
+              </tr>
+            </thead>
+            <tbody id="tblClientes"></tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <div class="section-head">
+          <div>
+            <h2>Top UFs</h2>
+            <p>Clique na barra para filtrar por UF.</p>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="chart-box"><canvas id="chartUF"></canvas></div>
         </div>
       </div>
     </section>
@@ -635,239 +358,502 @@ def render_html(payload: dict) -> str:
     <section>
       <div class="section-head">
         <div>
-          <h2>Top 10 clientes</h2>
-          <p>% Lucro = venda líquida ÷ custo total do item.</p>
+          <h2>Lucro por item</h2>
+          <p id="itensMeta">Detalhe dos itens no filtro atual.</p>
+        </div>
+        <div class="filter-actions" style="margin:0;">
+          <button class="btn-ghost" id="btnPrev" type="button">Anterior</button>
+          <button class="btn-ghost" id="btnNext" type="button">Próxima</button>
         </div>
       </div>
-      <div class="panel" style="overflow-x:auto;">
+      <div class="panel table-wrap">
         <table>
           <thead>
             <tr>
+              <th>Data</th>
+              <th>NF</th>
               <th>Cliente</th>
-              <th>Itens</th>
+              <th>Segmento</th>
+              <th>Descrição</th>
               <th>Venda</th>
               <th>Custo</th>
               <th>Venda líquida</th>
               <th>% Lucro</th>
+              <th>Status</th>
             </tr>
           </thead>
-          <tbody>
-            {clientes_html}
-          </tbody>
+          <tbody id="tblItens"></tbody>
         </table>
       </div>
     </section>
 
-    <p class="footer">
-      Gerado a partir de Relatorio_Custo_Faturamento_RBT.xlsx · RibbonTech Brasil
-    </p>
+    <p class="footer">RibbonTech Brasil · Dashboard HTML interativo gerado a partir do relatório de custo</p>
   </div>
 
   <script>
-    const DATA = {data_json};
+    const ROWS = {data_json};
 
-    const money = (v) => v.toLocaleString('pt-BR', {{ style: 'currency', currency: 'BRL' }});
-    const teal = '#1f6f78';
-    const copper = '#c45c26';
-    const ink = '#14212b';
-    const soft = '#8aa0b0';
+    const money = (v) => (v == null || Number.isNaN(v))
+      ? '—'
+      : v.toLocaleString('pt-BR', {{ style: 'currency', currency: 'BRL' }});
+    const pct = (v) => (v == null || Number.isNaN(v))
+      ? '—'
+      : (v * 100).toLocaleString('pt-BR', {{ maximumFractionDigits: 1 }}) + '%';
+    const fmtDate = (iso) => {{
+      if (!iso) return '—';
+      const [y,m,d] = iso.split('-');
+      return `${{d}}/${{m}}/${{y}}`;
+    }};
+    const ymOf = (iso) => iso ? iso.slice(0, 7) : null;
+
+    const state = {{
+      page: 0,
+      charts: {{}},
+      selectedCliente: null,
+    }};
+
+    function uniqueSorted(values) {{
+      return [...new Set(values.filter(Boolean))].sort((a,b) => a.localeCompare(b, 'pt-BR'));
+    }}
+
+    function fillSelect(id, values, allLabel) {{
+      const el = document.getElementById(id);
+      const current = el.value;
+      el.innerHTML = `<option value="">${{allLabel}}</option>` +
+        values.map(v => `<option value="${{v.replaceAll('"', '&quot;')}}">${{v}}</option>`).join('');
+      if ([...el.options].some(o => o.value === current)) el.value = current;
+    }}
+
+    function initFilters() {{
+      const dates = ROWS.map(r => r.d).filter(Boolean).sort();
+      if (dates.length) {{
+        document.getElementById('fInicio').value = dates[0];
+        document.getElementById('fFim').value = dates[dates.length - 1];
+        document.getElementById('fInicio').min = dates[0];
+        document.getElementById('fInicio').max = dates[dates.length - 1];
+        document.getElementById('fFim').min = dates[0];
+        document.getElementById('fFim').max = dates[dates.length - 1];
+      }}
+      fillSelect('fSegmento', uniqueSorted(ROWS.map(r => r.seg)), 'Todos');
+      fillSelect('fCliente', uniqueSorted(ROWS.map(r => r.c)), 'Todos');
+      fillSelect('fUF', uniqueSorted(ROWS.map(r => r.uf)), 'Todas');
+      fillSelect('fMaterial', uniqueSorted(ROWS.map(r => r.mat)), 'Todos');
+    }}
+
+    function readFilters() {{
+      return {{
+        inicio: document.getElementById('fInicio').value || null,
+        fim: document.getElementById('fFim').value || null,
+        segmento: document.getElementById('fSegmento').value || null,
+        cliente: document.getElementById('fCliente').value || state.selectedCliente || null,
+        uf: document.getElementById('fUF').value || null,
+        material: document.getElementById('fMaterial').value || null,
+        status: document.getElementById('fStatus').value || null,
+        lucroFaixa: document.getElementById('fLucroFaixa').value || null,
+        busca: (document.getElementById('fBusca').value || '').trim().toLowerCase(),
+        mes: document.getElementById('fMes').value || null,
+        topN: Number(document.getElementById('fTopN').value || 10),
+        pageSize: Number(document.getElementById('fPageSize').value || 50),
+      }};
+    }}
+
+    function inLucroFaixa(p, faixa) {{
+      if (!faixa) return true;
+      if (faixa === 'na') return p == null;
+      if (p == null) return false;
+      if (faixa === 'neg') return p < 0;
+      if (faixa === '0-20') return p >= 0 && p < 0.20;
+      if (faixa === '20-50') return p >= 0.20 && p < 0.50;
+      if (faixa === '50+') return p >= 0.50;
+      return true;
+    }}
+
+    function applyFilters(baseFilters) {{
+      const f = baseFilters || readFilters();
+      return ROWS.filter(r => {{
+        if (f.inicio && r.d && r.d < f.inicio) return false;
+        if (f.fim && r.d && r.d > f.fim) return false;
+        if (f.inicio && !r.d) return false;
+        if (f.segmento && r.seg !== f.segmento) return false;
+        if (f.cliente && r.c !== f.cliente) return false;
+        if (f.uf && r.uf !== f.uf) return false;
+        if (f.material && r.mat !== f.material) return false;
+        if (f.status && r.st !== f.status) return false;
+        if (!inLucroFaixa(r.p, f.lucroFaixa)) return false;
+        if (f.mes && ymOf(r.d) !== f.mes) return false;
+        if (f.busca) {{
+          const blob = `${{r.c || ''}} ${{r.cod || ''}} ${{r.desc || ''}} ${{r.n || ''}}`.toLowerCase();
+          if (!blob.includes(f.busca)) return false;
+        }}
+        return true;
+      }});
+    }}
+
+    function aggregateMonth(rows, field) {{
+      const map = new Map();
+      for (const r of rows) {{
+        const ym = ymOf(r.d);
+        if (!ym) continue;
+        const val = r[field];
+        if (val == null) continue;
+        map.set(ym, (map.get(ym) || 0) + val);
+      }}
+      const labels = [...map.keys()].sort();
+      return {{ labels, values: labels.map(k => map.get(k)) }};
+    }}
+
+    function aggregateBy(rows, key, field) {{
+      const map = new Map();
+      for (const r of rows) {{
+        const k = r[key] || 'N/D';
+        const val = r[field];
+        if (val == null) continue;
+        map.set(k, (map.get(k) || 0) + val);
+      }}
+      return [...map.entries()].sort((a,b) => b[1] - a[1]);
+    }}
+
+    function updateKpis(rows) {{
+      let venda = 0, custo = 0, liq = 0, frete = 0, imposto = 0, ok = 0;
+      for (const r of rows) {{
+        if (r.v != null) venda += r.v;
+        if (r.ct != null) custo += r.ct;
+        if (r.l != null) liq += r.l;
+        if (r.f != null) frete += r.f;
+        if (r.i != null) imposto += r.i;
+        if (r.st === 'ok') ok += 1;
+      }}
+      const lucro = custo > 0 ? liq / custo : null;
+      document.getElementById('kpiVenda').textContent = money(venda);
+      document.getElementById('kpiCusto').textContent = money(custo);
+      document.getElementById('kpiLiq').textContent = money(liq);
+      document.getElementById('kpiLucro').textContent = pct(lucro);
+      document.getElementById('kpiItens').textContent = rows.length.toLocaleString('pt-BR') + ` (${{ok.toLocaleString('pt-BR')}} ok)`;
+    }}
+
+    function upsertChart(id, config) {{
+      if (state.charts[id]) {{
+        state.charts[id].data = config.data;
+        state.charts[id].options = config.options;
+        state.charts[id].update();
+        return state.charts[id];
+      }}
+      state.charts[id] = new Chart(document.getElementById(id), config);
+      return state.charts[id];
+    }}
+
+    function renderCharts(rows, filters) {{
+      const mensalVenda = aggregateMonth(rows, 'v');
+      const mensalLucro = aggregateMonth(rows, 'l');
+      const segs = aggregateBy(rows, 'seg', 'v').slice(0, 8);
+      const ufs = aggregateBy(rows, 'uf', 'v').slice(0, 8);
+
+      const vendaChart = upsertChart('chartVendaMensal', {{
+        type: 'bar',
+        data: {{
+          labels: mensalVenda.labels,
+          datasets: [{{
+            label: 'Venda mensal',
+            data: mensalVenda.values,
+            backgroundColor: mensalVenda.labels.map(l => l === filters.mes ? '#c45c26' : 'rgba(31,111,120,0.88)'),
+            borderRadius: 7,
+            maxBarThickness: 42
+          }}]
+        }},
+        options: {{
+          responsive: true,
+          maintainAspectRatio: false,
+          onClick: (evt, els) => {{
+            if (!els.length) return;
+            const label = mensalVenda.labels[els[0].index];
+            const mesEl = document.getElementById('fMes');
+            mesEl.value = mesEl.value === label ? '' : label;
+            refresh();
+          }},
+          plugins: {{
+            legend: {{ display: false }},
+            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }}
+          }},
+          scales: {{
+            x: {{ grid: {{ display: false }} }},
+            y: {{
+              grid: {{ color: 'rgba(20,33,43,0.06)' }},
+              ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
+            }}
+          }}
+        }}
+      }});
+
+      upsertChart('chartLucroMensal', {{
+        type: 'bar',
+        data: {{
+          labels: mensalLucro.labels,
+          datasets: [{{
+            label: 'Venda líquida',
+            data: mensalLucro.values,
+            backgroundColor: mensalLucro.values.map(v => v < 0 ? 'rgba(161,40,40,0.85)' : 'rgba(196,92,38,0.88)'),
+            borderRadius: 7,
+            maxBarThickness: 36
+          }}]
+        }},
+        options: {{
+          responsive: true,
+          maintainAspectRatio: false,
+          onClick: (evt, els) => {{
+            if (!els.length) return;
+            const label = mensalLucro.labels[els[0].index];
+            const mesEl = document.getElementById('fMes');
+            mesEl.value = mesEl.value === label ? '' : label;
+            refresh();
+          }},
+          plugins: {{
+            legend: {{ display: false }},
+            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }}
+          }},
+          scales: {{
+            x: {{ grid: {{ display: false }} }},
+            y: {{
+              grid: {{ color: 'rgba(20,33,43,0.06)' }},
+              ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
+            }}
+          }}
+        }}
+      }});
+
+      upsertChart('chartSegmento', {{
+        type: 'bar',
+        data: {{
+          labels: segs.map(x => x[0]),
+          datasets: [{{
+            label: 'Venda',
+            data: segs.map(x => x[1]),
+            backgroundColor: segs.map(x => x[0] === filters.segmento ? '#c45c26' : 'rgba(31,111,120,0.88)'),
+            borderRadius: 7,
+            maxBarThickness: 34
+          }}]
+        }},
+        options: {{
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          onClick: (evt, els) => {{
+            if (!els.length) return;
+            const label = segs[els[0].index][0];
+            const el = document.getElementById('fSegmento');
+            el.value = el.value === label ? '' : label;
+            refresh();
+          }},
+          plugins: {{
+            legend: {{ display: false }},
+            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }}
+          }},
+          scales: {{
+            x: {{
+              grid: {{ color: 'rgba(20,33,43,0.06)' }},
+              ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
+            }},
+            y: {{ grid: {{ display: false }} }}
+          }}
+        }}
+      }});
+
+      upsertChart('chartUF', {{
+        type: 'bar',
+        data: {{
+          labels: ufs.map(x => x[0]),
+          datasets: [{{
+            data: ufs.map(x => x[1]),
+            backgroundColor: ufs.map(x => x[0] === filters.uf ? '#c45c26' : 'rgba(31,111,120,0.85)'),
+            borderRadius: 7,
+            maxBarThickness: 34
+          }}]
+        }},
+        options: {{
+          responsive: true,
+          maintainAspectRatio: false,
+          onClick: (evt, els) => {{
+            if (!els.length) return;
+            const label = ufs[els[0].index][0];
+            const el = document.getElementById('fUF');
+            el.value = el.value === label ? '' : label;
+            refresh();
+          }},
+          plugins: {{
+            legend: {{ display: false }},
+            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }}
+          }},
+          scales: {{
+            x: {{ grid: {{ display: false }} }},
+            y: {{
+              grid: {{ color: 'rgba(20,33,43,0.06)' }},
+              ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
+            }}
+          }}
+        }}
+      }});
+
+      document.getElementById('mesNote').textContent = filters.mes
+        ? `Mês ativo: ${{filters.mes}} (clique novamente no gráfico para limpar).`
+        : 'Nenhum mês selecionado. Clique numa coluna para filtrar.';
+    }}
+
+    function renderClientes(rows, filters) {{
+      const map = new Map();
+      for (const r of rows) {{
+        const k = r.c || 'N/D';
+        const cur = map.get(k) || {{ venda: 0, liq: 0, custo: 0 }};
+        if (r.v != null) cur.venda += r.v;
+        if (r.l != null) cur.liq += r.l;
+        if (r.ct != null) cur.custo += r.ct;
+        map.set(k, cur);
+      }}
+      const ranked = [...map.entries()]
+        .map(([nome, v]) => ({{
+          nome,
+          ...v,
+          lucroPct: v.custo > 0 ? v.liq / v.custo : null
+        }}))
+        .sort((a,b) => b.venda - a.venda)
+        .slice(0, filters.topN);
+
+      const tb = document.getElementById('tblClientes');
+      tb.innerHTML = ranked.map(c => `
+        <tr class="item-row ${{filters.cliente === c.nome ? 'active' : ''}}" data-cliente="${{c.nome.replaceAll('"', '&quot;')}}">
+          <td>${{c.nome}}</td>
+          <td>${{money(c.venda)}}</td>
+          <td class="${{c.liq < 0 ? 'neg' : 'pos'}}">${{money(c.liq)}}</td>
+          <td>${{pct(c.lucroPct)}}</td>
+        </tr>
+      `).join('');
+
+      tb.querySelectorAll('tr[data-cliente]').forEach(tr => {{
+        tr.addEventListener('click', () => {{
+          const nome = tr.getAttribute('data-cliente');
+          const el = document.getElementById('fCliente');
+          if (el.value === nome) {{
+            el.value = '';
+            state.selectedCliente = null;
+          }} else {{
+            el.value = nome;
+            state.selectedCliente = nome;
+          }}
+          refresh();
+        }});
+      }});
+    }}
+
+    function renderItens(rows, filters) {{
+      const sorted = [...rows].sort((a,b) => {{
+        const da = a.d || '';
+        const db = b.d || '';
+        if (da !== db) return db.localeCompare(da);
+        return (b.v || 0) - (a.v || 0);
+      }});
+      const pageSize = filters.pageSize;
+      const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
+      if (state.page >= pages) state.page = pages - 1;
+      if (state.page < 0) state.page = 0;
+      const start = state.page * pageSize;
+      const pageRows = sorted.slice(start, start + pageSize);
+
+      document.getElementById('itensMeta').textContent =
+        `${{sorted.length.toLocaleString('pt-BR')}} itens · página ${{state.page + 1}} de ${{pages}}`;
+
+      const tb = document.getElementById('tblItens');
+      tb.innerHTML = pageRows.map(r => `
+        <tr class="item-row" data-cliente="${{(r.c || '').replaceAll('"', '&quot;')}}" data-seg="${{(r.seg || '').replaceAll('"', '&quot;')}}">
+          <td>${{fmtDate(r.d)}}</td>
+          <td>${{r.n || '—'}}</td>
+          <td>${{r.c || '—'}}</td>
+          <td>${{r.seg || '—'}}</td>
+          <td title="${{(r.desc || '').replaceAll('"', '&quot;')}}">${{r.desc || '—'}}</td>
+          <td>${{money(r.v)}}</td>
+          <td>${{money(r.ct)}}</td>
+          <td class="${{(r.l ?? 0) < 0 ? 'neg' : ''}}">${{money(r.l)}}</td>
+          <td class="${{(r.p ?? 0) < 0 ? 'neg' : 'pos'}}">${{pct(r.p)}}</td>
+          <td>${{r.st === 'ok' ? 'ok' : 'incompleto'}}</td>
+        </tr>
+      `).join('') || `<tr><td colspan="10">Nenhum item para os filtros atuais.</td></tr>`;
+
+      tb.querySelectorAll('tr[data-cliente]').forEach(tr => {{
+        tr.addEventListener('click', () => {{
+          const nome = tr.getAttribute('data-cliente');
+          const seg = tr.getAttribute('data-seg');
+          if (nome) {{
+            document.getElementById('fCliente').value = nome;
+            state.selectedCliente = nome;
+          }}
+          if (seg) document.getElementById('fSegmento').value = seg;
+          refresh();
+        }});
+      }});
+    }}
+
+    function updateChips(filters) {{
+      const chips = [];
+      if (filters.inicio || filters.fim) chips.push(`Período: ${{fmtDate(filters.inicio)}} → ${{fmtDate(filters.fim)}}`);
+      if (filters.segmento) chips.push(`Segmento: ${{filters.segmento}}`);
+      if (filters.cliente) chips.push(`Cliente: ${{filters.cliente}}`);
+      if (filters.uf) chips.push(`UF: ${{filters.uf}}`);
+      if (filters.material) chips.push(`Material: ${{filters.material}}`);
+      if (filters.status) chips.push(`Status: ${{filters.status}}`);
+      if (filters.mes) chips.push(`Mês: ${{filters.mes}}`);
+      if (filters.busca) chips.push(`Busca: ${{filters.busca}}`);
+      if (filters.lucroFaixa) chips.push(`Lucro: ${{filters.lucroFaixa}}`);
+      const el = document.getElementById('activeChips');
+      if (!chips.length) {{
+        el.hidden = true;
+        el.textContent = '';
+        return;
+      }}
+      el.hidden = false;
+      el.innerHTML = chips.map(c => `<span>${{c}}</span>`).join(' · ');
+    }}
+
+    function refresh() {{
+      const filters = readFilters();
+      if (filters.cliente) state.selectedCliente = filters.cliente;
+      const rows = applyFilters(filters);
+      updateKpis(rows);
+      renderCharts(rows, filters);
+      renderClientes(rows, filters);
+      renderItens(rows, filters);
+      updateChips(filters);
+    }}
+
+    function clearFilters() {{
+      initFilters();
+      document.getElementById('fStatus').value = '';
+      document.getElementById('fLucroFaixa').value = '';
+      document.getElementById('fBusca').value = '';
+      document.getElementById('fMes').value = '';
+      document.getElementById('fTopN').value = '10';
+      document.getElementById('fPageSize').value = '50';
+      document.getElementById('fSegmento').value = '';
+      document.getElementById('fCliente').value = '';
+      document.getElementById('fUF').value = '';
+      document.getElementById('fMaterial').value = '';
+      state.selectedCliente = null;
+      state.page = 0;
+      refresh();
+    }}
 
     Chart.defaults.font.family = 'IBM Plex Sans, sans-serif';
     Chart.defaults.color = '#2a3b49';
 
-    new Chart(document.getElementById('chartCobertura'), {{
-      type: 'doughnut',
-      data: {{
-        labels: ['Custo ok', 'Custo incompleto'],
-        datasets: [{{
-          data: [DATA.kpis.ok, DATA.kpis.incompleto],
-          backgroundColor: [teal, copper],
-          borderWidth: 0,
-          hoverOffset: 6
-        }}]
-      }},
-      options: {{
-        cutout: '68%',
-        plugins: {{
-          legend: {{ position: 'bottom' }},
-          title: {{ display: true, text: 'Status do custo', font: {{ family: 'Sora', size: 14 }} }}
-        }},
-        animation: {{ animateRotate: true, duration: 1100 }}
-      }}
+    document.getElementById('btnAplicar').addEventListener('click', () => {{ state.page = 0; refresh(); }});
+    document.getElementById('btnLimpar').addEventListener('click', clearFilters);
+    document.getElementById('btnPrev').addEventListener('click', () => {{ state.page -= 1; refresh(); }});
+    document.getElementById('btnNext').addEventListener('click', () => {{ state.page += 1; refresh(); }});
+    ['fInicio','fFim','fSegmento','fCliente','fUF','fMaterial','fStatus','fLucroFaixa','fMes','fTopN','fPageSize']
+      .forEach(id => document.getElementById(id).addEventListener('change', () => {{ state.page = 0; refresh(); }}));
+    document.getElementById('fBusca').addEventListener('input', () => {{
+      clearTimeout(state._t);
+      state._t = setTimeout(() => {{ state.page = 0; refresh(); }}, 250);
     }});
 
-    new Chart(document.getElementById('chartPendencias'), {{
-      type: 'bar',
-      data: {{
-        labels: DATA.pendencias.labels,
-        datasets: [{{
-          label: 'Itens',
-          data: DATA.pendencias.qtd,
-          backgroundColor: 'rgba(196,92,38,0.85)',
-          borderRadius: 8,
-          maxBarThickness: 28
-        }}]
-      }},
-      options: {{
-        indexAxis: 'y',
-        plugins: {{
-          legend: {{ display: false }},
-          title: {{ display: true, text: 'Pendências', font: {{ family: 'Sora', size: 14 }} }}
-        }},
-        scales: {{
-          x: {{ grid: {{ color: 'rgba(20,33,43,0.06)' }}, ticks: {{ precision: 0 }} }},
-          y: {{ grid: {{ display: false }} }}
-        }},
-        animation: {{ duration: 1000 }}
-      }}
-    }});
-
-    new Chart(document.getElementById('chartComposicao'), {{
-      type: 'doughnut',
-      data: {{
-        labels: ['Custo', 'Frete 3%', 'Imposto 9,2%', 'Venda líquida'],
-        datasets: [{{
-          data: [DATA.kpis.custo_ok, DATA.kpis.frete_ok, DATA.kpis.imposto_ok, DATA.kpis.liquida_ok],
-          backgroundColor: ['#234a57', '#3aa0ab', '#c45c26', '#1f7a4c'],
-          borderWidth: 0
-        }}]
-      }},
-      options: {{
-        cutout: '62%',
-        plugins: {{
-          legend: {{ position: 'bottom' }},
-          title: {{ display: true, text: 'Composição da venda (itens ok)', font: {{ family: 'Sora', size: 14 }} }},
-          tooltip: {{
-            callbacks: {{
-              label: (ctx) => `${{ctx.label}}: ${{money(ctx.raw)}}`
-            }}
-          }}
-        }}
-      }}
-    }});
-
-    new Chart(document.getElementById('chartSegmento'), {{
-      type: 'bar',
-      data: {{
-        labels: DATA.segmentos.labels,
-        datasets: [
-          {{ label: 'Venda', data: DATA.segmentos.venda, backgroundColor: teal, borderRadius: 6 }},
-          {{ label: 'Custo', data: DATA.segmentos.custo, backgroundColor: '#234a57', borderRadius: 6 }},
-          {{ label: 'Venda líquida', data: DATA.segmentos.liquida, backgroundColor: copper, borderRadius: 6 }}
-        ]
-      }},
-      options: {{
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {{
-          legend: {{ position: 'top' }},
-          tooltip: {{ callbacks: {{ label: (c) => `${{c.dataset.label}}: ${{money(c.raw)}}` }} }}
-        }},
-        scales: {{
-          x: {{ grid: {{ display: false }} }},
-          y: {{
-            grid: {{ color: 'rgba(20,33,43,0.06)' }},
-            ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
-          }}
-        }},
-        animation: {{ duration: 1200 }}
-      }}
-    }});
-
-    new Chart(document.getElementById('chartMensal'), {{
-      type: 'line',
-      data: {{
-        labels: DATA.mensal.labels,
-        datasets: [
-          {{
-            label: 'Venda',
-            data: DATA.mensal.venda,
-            borderColor: teal,
-            backgroundColor: 'rgba(31,111,120,0.12)',
-            fill: true,
-            tension: 0.35,
-            pointRadius: 2
-          }},
-          {{
-            label: 'Custo',
-            data: DATA.mensal.custo,
-            borderColor: ink,
-            backgroundColor: 'transparent',
-            tension: 0.35,
-            pointRadius: 2
-          }},
-          {{
-            label: 'Venda líquida',
-            data: DATA.mensal.liquida,
-            borderColor: copper,
-            backgroundColor: 'transparent',
-            tension: 0.35,
-            pointRadius: 2
-          }}
-        ]
-      }},
-      options: {{
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {{
-          legend: {{ position: 'top' }},
-          tooltip: {{ callbacks: {{ label: (c) => `${{c.dataset.label}}: ${{money(c.raw)}}` }} }}
-        }},
-        scales: {{
-          x: {{ grid: {{ display: false }} }},
-          y: {{
-            grid: {{ color: 'rgba(20,33,43,0.06)' }},
-            ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
-          }}
-        }},
-        animation: {{ duration: 1300 }}
-      }}
-    }});
-
-    new Chart(document.getElementById('chartUF'), {{
-      type: 'bar',
-      data: {{
-        labels: DATA.uf.labels,
-        datasets: [{{
-          data: DATA.uf.venda,
-          backgroundColor: 'rgba(31,111,120,0.85)',
-          borderRadius: 8,
-          maxBarThickness: 36
-        }}]
-      }},
-      options: {{
-        plugins: {{
-          legend: {{ display: false }},
-          tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }}
-        }},
-        scales: {{
-          x: {{ grid: {{ display: false }} }},
-          y: {{
-            grid: {{ color: 'rgba(20,33,43,0.06)' }},
-            ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
-          }}
-        }}
-      }}
-    }});
-
-    new Chart(document.getElementById('chartMaterial'), {{
-      type: 'doughnut',
-      data: {{
-        labels: DATA.materiais.labels,
-        datasets: [{{
-          data: DATA.materiais.venda,
-          backgroundColor: ['#1f6f78', '#c45c26', '#234a57'],
-          borderWidth: 0
-        }}]
-      }},
-      options: {{
-        cutout: '60%',
-        plugins: {{
-          legend: {{ position: 'bottom' }},
-          tooltip: {{ callbacks: {{ label: (c) => `${{c.label}}: ${{money(c.raw)}}` }} }}
-        }}
-      }}
-    }});
+    initFilters();
+    refresh();
   </script>
 </body>
 </html>
@@ -875,21 +861,24 @@ def render_html(payload: dict) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Gera dashboard HTML do relatório de custo")
+    parser = argparse.ArgumentParser(description="Gera dashboard HTML interativo")
     parser.add_argument("--input", default="Relatorio_Custo_Faturamento_RBT.xlsx")
     parser.add_argument("--output", default="Dashboard_Custo_Faturamento_RBT.html")
     args = parser.parse_args()
 
     df = pd.read_excel(args.input, sheet_name="Relatorio")
-    payload = build_payload(df)
-    html = render_html(payload)
+    dts = pd.to_datetime(df["Data de emissão"], dayfirst=True, errors="coerce")
+    if dts.notna().any():
+        periodo = f"{dts.min().strftime('%d/%m/%Y')} a {dts.max().strftime('%d/%m/%Y')}"
+    else:
+        periodo = "Período não disponível"
+
+    rows = build_rows(df)
+    html = render_html(rows, periodo)
     out = Path(args.output)
     out.write_text(html, encoding="utf-8")
     print(f"Dashboard gerado: {out.resolve()}")
-    print(
-        f"Itens={payload['kpis']['itens']} ok={payload['kpis']['ok']} "
-        f"venda={payload['format']['venda_total']} liquida={payload['format']['liquida_ok']}"
-    )
+    print(f"Linhas embutidas: {len(rows)} | tamanho: {out.stat().st_size / 1024:.1f} KB")
 
 
 if __name__ == "__main__":

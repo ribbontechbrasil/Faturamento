@@ -480,10 +480,15 @@ def main() -> None:
         scripts_dir = Path(__file__).resolve().parent
         if str(scripts_dir) not in sys.path:
             sys.path.insert(0, str(scripts_dir))
-        from gerar_dashboard_html import build_payload, render_html
+        from gerar_dashboard_html import build_rows, render_html
 
+        dts = pd.to_datetime(df["Data de emissão"], dayfirst=True, errors="coerce")
+        if dts.notna().any():
+            periodo = f"{dts.min().strftime('%d/%m/%Y')} a {dts.max().strftime('%d/%m/%Y')}"
+        else:
+            periodo = "Período não disponível"
         html_path = output_path.with_name("Dashboard_Custo_Faturamento_RBT.html")
-        html_path.write_text(render_html(build_payload(df)), encoding="utf-8")
+        html_path.write_text(render_html(build_rows(df), periodo), encoding="utf-8")
         print(f"Dashboard HTML gerado: {html_path}")
     except Exception as exc:  # pragma: no cover - best effort
         print(f"Aviso: não foi possível gerar o dashboard HTML ({exc})")
