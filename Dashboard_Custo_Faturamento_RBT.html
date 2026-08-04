@@ -156,6 +156,24 @@
       background: rgba(196,92,38,.1); border: 1px solid rgba(196,92,38,.22);
       color: var(--ink-soft); font-size: .86rem;
     }
+    .persist-bar {
+      position: sticky; top: 0; z-index: 20;
+      display: none;
+      margin: .8rem 0 0;
+      padding: .8rem 1rem;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #14545c, #1f6f78);
+      color: #fff;
+      box-shadow: var(--shadow);
+      align-items: center;
+      justify-content: space-between;
+      gap: .8rem;
+      flex-wrap: wrap;
+    }
+    .persist-bar.show { display: flex; }
+    .persist-bar p { margin: 0; font-size: .9rem; max-width: 62ch; }
+    .persist-bar .btn-primary { background: #fff; color: var(--teal-deep); }
+    .persist-bar .btn-ghost { background: rgba(255,255,255,.16); color: #fff; }
     .footer { margin-top: 1.4rem; text-align: center; color: var(--ink-soft); font-size: .84rem; }
 
     @keyframes rise {
@@ -248,17 +266,31 @@
       <div class="filter-actions">
         <button class="btn-primary" id="btnAplicar" type="button">Aplicar filtros</button>
         <button class="btn-ghost" id="btnLimpar" type="button">Limpar filtros</button>
-        <button class="btn-ghost" id="btnExportManual" type="button">Exportar custos manuais</button>
+        <button class="btn-primary" id="btnDownloadHtml" type="button">Baixar dashboard com meus custos</button>
+        <button class="btn-ghost" id="btnExportManual" type="button">Exportar CSV</button>
+        <button class="btn-ghost" id="btnLoadManual" type="button">Carregar custos salvos</button>
         <button class="btn-ghost" id="btnClearManual" type="button">Limpar custos manuais</button>
+        <input type="file" id="fileManual" accept=".json,application/json,.csv,text/csv" hidden />
         <span class="chip" id="activeChips" hidden></span>
       </div>
       <p class="hint">Dica: clique numa coluna do gráfico mensal ou numa barra de segmento para filtrar. Clique de novo para remover.</p>
       <div class="manual-banner">
-        Itens com <strong>custo incompleto</strong> podem receber custo manual na tabela “Lucro por item”.
-        O valor é salvo neste navegador e recalcula frete (3%), imposto (9,2%), venda líquida e % lucro.
+        <strong>Por que o custo “some”?</strong> O navegador não grava bem dados em arquivo aberto do computador.
+        Depois de informar custos, clique em <strong>Baixar dashboard com meus custos</strong> e use
+        <em>sempre esse arquivo baixado</em> nos próximos acessos.
         <span id="manualCountLabel"></span>
       </div>
+      <div class="persist-bar" id="persistBar">
+        <p id="persistMsg">Custo salvo neste navegador. Para não perder no próximo acesso, baixe o dashboard com seus custos.</p>
+        <div class="filter-actions" style="margin:0;">
+          <button class="btn-primary" id="btnDownloadHtml2" type="button">Baixar agora</button>
+          <button class="btn-ghost" id="btnDismissPersist" type="button">Agora não</button>
+        </div>
+      </div>
     </section>
+
+    <!-- Custos manuais embutidos no arquivo (não apagar) -->
+    <script id="manual-baked" type="application/json">{}</script>
 
     <section>
       <div class="section-head">
@@ -405,27 +437,107 @@
       manualCosts: loadManualCosts(),
     };
 
-    function loadManualCosts() {
+    function normalizeCostMap(obj) {
+      const out = {};
+      Object.entries(obj || {}).forEach(([k, v]) => {
+        const n = Number(v);
+        if (Number.isFinite(n)) out[String(k)] = n;
+      });
+      return out;
+    }
+
+    function loadBakedCosts() {
       try {
-        const raw = localStorage.getItem(MANUAL_KEY);
-        if (!raw) return {};
-        const obj = JSON.parse(raw);
-        const out = {};
-        Object.entries(obj || {}).forEach(([k, v]) => {
-          const n = Number(v);
-          if (Number.isFinite(n)) out[String(k)] = n;
-        });
-        return out;
+        const el = document.getElementById('manual-baked');
+        if (!el) return {};
+        const txt = (el.textContent || '').trim();
+        if (!txt) return {};
+        return normalizeCostMap(JSON.parse(txt));
       } catch (e) {
         return {};
       }
     }
 
-    function saveManualCosts() {
-      localStorage.setItem(MANUAL_KEY, JSON.stringify(state.manualCosts));
+    function loadManualCosts() {
+      let local = {};
+      try {
+        const raw = localStorage.getItem(MANUAL_KEY);
+        if (raw) local = normalizeCostMap(JSON.parse(raw));
+      } catch (e) {
+        local = {};
+      }
+      // Arquivo baixado com custos embutidos + memória do navegador
+      return { ...loadBakedCosts(), ...local };
+    }
+
+    function updateManualCountLabel() {
       const n = Object.keys(state.manualCosts).length;
       const el = document.getElementById('manualCountLabel');
-      if (el) el.textContent = n ? ` · ${n} custo(s) manual(is) salvo(s) neste navegador.` : '';
+      if (el) {
+        el.textContent = n
+          ? ` · ${n} custo(s) manual(is) ativo(s). Lembre de baixar o dashboard para não perder.`
+          : '';
+      }
+    }
+
+    function saveManualCosts({ showPersistBar = false, autoJsonBackup = false } = {}) {
+      try {
+        localStorage.setItem(MANUAL_KEY, JSON.stringify(state.manualCosts));
+      } catch (e) {
+        // file:// ou bloqueio de storage — seguimos com arquivo embutido/backup
+      }
+      const baked = document.getElementById('manual-baked');
+      if (baked) baked.textContent = JSON.stringify(state.manualCosts);
+      updateManualCountLabel();
+      if (showPersistBar) {
+        const bar = document.getElementById('persistBar');
+        if (bar) bar.classList.add('show');
+      }
+      if (autoJsonBackup && Object.keys(state.manualCosts).length) {
+        downloadManualJson(false);
+      }
+    }
+
+    function downloadBlob(filename, content, type) {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function downloadManualJson(alertIfEmpty = true) {
+      const ids = Object.keys(state.manualCosts);
+      if (!ids.length) {
+        if (alertIfEmpty) alert('Não há custos manuais para salvar.');
+        return;
+      }
+      downloadBlob(
+        'custos_manuais_rbt.json',
+        JSON.stringify(state.manualCosts, null, 2),
+        'application/json;charset=utf-8;'
+      );
+    }
+
+    function downloadHtmlWithCosts() {
+      if (!Object.keys(state.manualCosts).length) {
+        alert('Informe ao menos um custo manual antes de baixar.');
+        return;
+      }
+      saveManualCosts({ showPersistBar: false });
+      const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+      downloadBlob(
+        'Dashboard_Custo_Faturamento_RBT_com_custos.html',
+        html,
+        'text/html;charset=utf-8;'
+      );
+      const bar = document.getElementById('persistBar');
+      if (bar) bar.classList.remove('show');
+      alert('Arquivo baixado! Nos próximos acessos, abra “Dashboard_Custo_Faturamento_RBT_com_custos.html” (não o arquivo antigo sem custos).');
     }
 
     function enrichRow(r) {
@@ -481,7 +593,7 @@
       fillSelect('fCliente', uniqueSorted(ROWS.map(r => r.c)), 'Todos');
       fillSelect('fUF', uniqueSorted(ROWS.map(r => r.uf)), 'Todas');
       fillSelect('fMaterial', uniqueSorted(ROWS.map(r => r.mat)), 'Todos');
-      saveManualCosts();
+      saveManualCosts({ showPersistBar: false });
     }
 
     function readFilters() {
@@ -595,7 +707,8 @@
       } else {
         state.manualCosts[key] = value;
       }
-      saveManualCosts();
+      // Salva no navegador + pede para baixar o arquivo (persistência real)
+      saveManualCosts({ showPersistBar: true, autoJsonBackup: true });
       refresh();
     }
 
@@ -972,10 +1085,56 @@
         alert('Não há custos manuais salvos.');
         return;
       }
-      if (confirm('Apagar todos os custos manuais salvos neste navegador?')) {
+      if (confirm('Apagar todos os custos manuais salvos neste navegador e neste arquivo?')) {
         state.manualCosts = {};
-        saveManualCosts();
+        saveManualCosts({ showPersistBar: false });
+        const bar = document.getElementById('persistBar');
+        if (bar) bar.classList.remove('show');
         refresh();
+      }
+    });
+    document.getElementById('btnDownloadHtml').addEventListener('click', downloadHtmlWithCosts);
+    document.getElementById('btnDownloadHtml2').addEventListener('click', downloadHtmlWithCosts);
+    document.getElementById('btnDismissPersist').addEventListener('click', () => {
+      document.getElementById('persistBar').classList.remove('show');
+    });
+    document.getElementById('btnLoadManual').addEventListener('click', () => {
+      document.getElementById('fileManual').click();
+    });
+    document.getElementById('fileManual').addEventListener('change', async (ev) => {
+      const file = ev.target.files && ev.target.files[0];
+      ev.target.value = '';
+      if (!file) return;
+      try {
+        const text = await file.text();
+        let map = {};
+        if (file.name.toLowerCase().endsWith('.csv')) {
+          const lines = text.split(/\r?\n/).filter(Boolean);
+          lines.slice(1).forEach(line => {
+            const parts = line.split(';');
+            if (parts.length >= 7) {
+              const id = parts[0];
+              const custo = parseMoneyInput(parts[6]);
+              if (id && custo != null) map[String(id)] = custo;
+            } else if (parts.length >= 2) {
+              const id = parts[0];
+              const custo = parseMoneyInput(parts[1]);
+              if (id && custo != null) map[String(id)] = custo;
+            }
+          });
+        } else {
+          map = normalizeCostMap(JSON.parse(text));
+        }
+        if (!Object.keys(map).length) {
+          alert('Arquivo sem custos válidos.');
+          return;
+        }
+        state.manualCosts = { ...state.manualCosts, ...map };
+        saveManualCosts({ showPersistBar: true });
+        refresh();
+        alert(`Custos carregados: ${Object.keys(map).length}. Clique em “Baixar dashboard com meus custos” para fixar no arquivo.`);
+      } catch (e) {
+        alert('Não foi possível ler o arquivo. Use o JSON/CSV exportado por este dashboard.');
       }
     });
     document.getElementById('btnExportManual').addEventListener('click', () => {
@@ -999,13 +1158,8 @@
         ]);
       });
       const csv = lines.map(row => row.join(';')).join('\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'custos_manuais_rbt.csv';
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob('custos_manuais_rbt.csv', csv, 'text/csv;charset=utf-8;');
+      downloadManualJson(false);
     });
     ['fInicio','fFim','fSegmento','fCliente','fUF','fMaterial','fStatus','fLucroFaixa','fMes','fTopN','fPageSize']
       .forEach(id => document.getElementById(id).addEventListener('change', () => { state.page = 0; refresh(); }));
