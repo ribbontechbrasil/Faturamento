@@ -177,8 +177,8 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       box-shadow: var(--shadow); padding: 1rem; backdrop-filter: blur(10px);
     }}
     .grid-2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; }}
-    .chart-box {{ position: relative; height: 300px; }}
-    .chart-box.tall {{ height: 340px; }}
+    .chart-box {{ position: relative; height: 320px; }}
+    .chart-box.tall {{ height: 380px; }}
     .click-note {{ margin-top: .55rem; font-size: .82rem; color: var(--ink-soft); }}
 
     table {{ width: 100%; border-collapse: collapse; font-size: .9rem; }}
@@ -774,53 +774,56 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       refresh();
     }}
 
-    function moneyShort(v) {{
+    function moneyShort(v, compact = false) {{
       if (v == null || Number.isNaN(v)) return '';
       const sign = v < 0 ? '-' : '';
       const abs = Math.abs(v);
       if (abs >= 1000000) {{
-        return sign + 'R$ ' + (abs / 1000000).toLocaleString('pt-BR', {{ maximumFractionDigits: 1 }}) + ' mi';
+        return sign + (compact ? '' : 'R$ ') + (abs / 1000000).toLocaleString('pt-BR', {{ maximumFractionDigits: 1 }}) + ' mi';
       }}
       if (abs >= 1000) {{
-        return sign + 'R$ ' + (abs / 1000).toLocaleString('pt-BR', {{ maximumFractionDigits: 0 }}) + ' mil';
+        return sign + (compact ? '' : 'R$ ') + (abs / 1000).toLocaleString('pt-BR', {{ maximumFractionDigits: 0 }}) + ' mil';
       }}
-      return money(v);
+      return (compact ? '' : 'R$ ') + abs.toLocaleString('pt-BR', {{ maximumFractionDigits: 0 }});
     }}
 
     function dataLabelsConfig({{ horizontal = false, count = 0 }} = {{}}) {{
-      const dense = !horizontal && count > 14;
+      const dense = !horizontal && count > 12;
+      // Barras verticais: rótulo DENTRO da coluna (evita corte fora do gráfico)
+      // Barras horizontais: rótulo à direita
       return {{
         datalabels: {{
-          color: '#14212b',
-          backgroundColor: 'rgba(255,255,255,0.78)',
+          display: (ctx) => {{
+            const value = ctx.dataset.data[ctx.dataIndex];
+            return value != null && Number(value) !== 0;
+          }},
+          formatter: (value) => moneyShort(value, dense),
+          color: (ctx) => {{
+            if (horizontal) return '#14212b';
+            return '#ffffff';
+          }},
+          backgroundColor: (ctx) => horizontal ? 'rgba(255,255,255,0.9)' : 'rgba(20,33,43,0.28)',
           borderRadius: 4,
-          padding: {{ top: 2, bottom: 2, left: 4, right: 4 }},
-          anchor: 'end',
-          align: horizontal ? 'right' : 'top',
-          offset: 4,
-          clamp: true,
+          padding: dense ? {{ top: 1, bottom: 1, left: 2, right: 2 }} : {{ top: 2, bottom: 2, left: 4, right: 4 }},
+          anchor: horizontal ? 'end' : 'center',
+          align: horizontal ? 'right' : 'center',
+          offset: horizontal ? 6 : 0,
+          clamp: false,
           clip: false,
           font: {{
             family: 'IBM Plex Sans',
-            weight: '600',
+            weight: '700',
             size: dense ? 9 : 11
           }},
-          rotation: dense ? -65 : 0,
-          formatter: (value) => moneyShort(value),
-          display: (ctx) => {{
-            const value = ctx.dataset.data[ctx.dataIndex];
-            return value != null && value !== 0;
-          }}
+          rotation: dense ? -90 : 0
         }}
       }};
     }}
 
     function upsertChart(id, config) {{
+      // Recria o gráfico para garantir que os rótulos de dados sejam aplicados
       if (state.charts[id]) {{
-        state.charts[id].data = config.data;
-        state.charts[id].options = config.options;
-        state.charts[id].update();
-        return state.charts[id];
+        state.charts[id].destroy();
       }}
       state.charts[id] = new Chart(document.getElementById(id), config);
       return state.charts[id];
@@ -847,7 +850,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         options: {{
           responsive: true,
           maintainAspectRatio: false,
-          layout: {{ padding: {{ top: 28, right: 8 }} }},
+          layout: {{ padding: {{ top: 12, right: 8, bottom: 4 }} }},
           onClick: (evt, els) => {{
             if (!els.length) return;
             const label = mensalVenda.labels[els[0].index];
@@ -863,7 +866,8 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           scales: {{
             x: {{ grid: {{ display: false }} }},
             y: {{
-              grace: '12%',
+              beginAtZero: true,
+              grace: '8%',
               grid: {{ color: 'rgba(20,33,43,0.06)' }},
               ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
             }}
@@ -886,7 +890,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         options: {{
           responsive: true,
           maintainAspectRatio: false,
-          layout: {{ padding: {{ top: 28, right: 8 }} }},
+          layout: {{ padding: {{ top: 12, right: 8, bottom: 4 }} }},
           onClick: (evt, els) => {{
             if (!els.length) return;
             const label = mensalLucro.labels[els[0].index];
@@ -902,7 +906,8 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           scales: {{
             x: {{ grid: {{ display: false }} }},
             y: {{
-              grace: '12%',
+              beginAtZero: true,
+              grace: '8%',
               grid: {{ color: 'rgba(20,33,43,0.06)' }},
               ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
             }}
@@ -964,7 +969,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         options: {{
           responsive: true,
           maintainAspectRatio: false,
-          layout: {{ padding: {{ top: 28, right: 8 }} }},
+          layout: {{ padding: {{ top: 12, right: 8, bottom: 4 }} }},
           onClick: (evt, els) => {{
             if (!els.length) return;
             const label = ufs[els[0].index][0];
@@ -980,7 +985,8 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           scales: {{
             x: {{ grid: {{ display: false }} }},
             y: {{
-              grace: '12%',
+              beginAtZero: true,
+              grace: '8%',
               grid: {{ color: 'rgba(20,33,43,0.06)' }},
               ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
             }}
@@ -1188,10 +1194,13 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       refresh();
     }}
 
-    Chart.register(ChartDataLabels);
+    if (typeof ChartDataLabels !== 'undefined') {{
+      Chart.register(ChartDataLabels);
+    }} else {{
+      console.warn('Plugin de rótulos de dados não carregou. Verifique a conexão com a internet.');
+    }}
     Chart.defaults.font.family = 'IBM Plex Sans, sans-serif';
     Chart.defaults.color = '#2a3b49';
-    Chart.defaults.set('plugins.datalabels', {{ display: false }});
 
     document.getElementById('btnAplicar').addEventListener('click', () => {{ state.page = 0; refresh(); }});
     document.getElementById('btnLimpar').addEventListener('click', clearFilters);
