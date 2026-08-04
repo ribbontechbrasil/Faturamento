@@ -20,6 +20,10 @@ def build_rows(df: pd.DataFrame) -> list[dict]:
     rows = []
     dts = pd.to_datetime(df["Data de emissão"], dayfirst=True, errors="coerce")
     for idx, (i, r) in enumerate(df.iterrows()):
+        seg_val = r.get("Segmento")
+        if seg_val is not None and not (isinstance(seg_val, float) and pd.isna(seg_val)):
+            if str(seg_val).strip().lower() == "ativo":
+                continue  # segmento Ativo fora da análise
         dt = dts.loc[i]
         rows.append(
             {
@@ -246,8 +250,39 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
     @media (max-width: 980px) {{
       .kpi-grid, .filter-grid, .grid-2 {{ grid-template-columns: 1fr 1fr; }}
     }}
+    .check-box {{
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      padding: .55rem .65rem;
+      max-height: 150px;
+      overflow: auto;
+      display: grid;
+      gap: .28rem;
+    }}
+    .check-box label {{
+      display: flex;
+      align-items: center;
+      gap: .45rem;
+      text-transform: none;
+      letter-spacing: 0;
+      font-size: .88rem;
+      font-weight: 500;
+      color: var(--ink);
+      cursor: pointer;
+    }}
+    .check-box input {{ width: auto; margin: 0; accent-color: var(--teal); }}
+    .check-actions {{ display: flex; gap: .45rem; margin-top: .35rem; }}
+    .check-actions button {{
+      border: 0; border-radius: 999px; padding: .25rem .6rem;
+      font: 600 0.75rem "IBM Plex Sans", sans-serif; cursor: pointer;
+      background: rgba(20,33,43,.08); color: var(--ink);
+    }}
+    .filter-span-2 {{ grid-column: span 2; }}
+
     @media (max-width: 640px) {{
       .kpi-grid, .filter-grid, .grid-2 {{ grid-template-columns: 1fr; }}
+      .filter-span-2 {{ grid-column: span 1; }}
       .chart-box, .chart-box.tall {{ height: 250px; }}
     }}
   </style>
@@ -272,15 +307,30 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       <div class="filter-grid">
         <label>Data início<input type="date" id="fInicio" /></label>
         <label>Data fim<input type="date" id="fFim" /></label>
-        <label>Segmento
-          <select id="fSegmento"><option value="">Todos</option></select>
-        </label>
         <label>Cliente
           <select id="fCliente"><option value="">Todos</option></select>
         </label>
         <label>UF
           <select id="fUF"><option value="">Todas</option></select>
         </label>
+        <div class="filter-span-2">
+          <label>Segmento (pode marcar mais de um)
+            <div class="check-box" id="fSegmentoBox"></div>
+            <div class="check-actions">
+              <button type="button" id="btnSegAll">Marcar todos</button>
+              <button type="button" id="btnSegNone">Limpar</button>
+            </div>
+          </label>
+        </div>
+        <div class="filter-span-2">
+          <label>Mês selecionado (pode marcar mais de um)
+            <div class="check-box" id="fMesBox"></div>
+            <div class="check-actions">
+              <button type="button" id="btnMesAll">Marcar todos</button>
+              <button type="button" id="btnMesNone">Limpar</button>
+            </div>
+          </label>
+        </div>
         <label>Material
           <select id="fMaterial"><option value="">Todos</option></select>
         </label>
@@ -305,9 +355,6 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         </label>
         <label>Busca cliente / código / descrição
           <input type="search" id="fBusca" placeholder="Ex.: Ribbon, MG, 300443..." />
-        </label>
-        <label>Mês selecionado (clique no gráfico)
-          <input type="month" id="fMes" />
         </label>
         <label>Top N clientes na tabela
           <select id="fTopN">
@@ -335,7 +382,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         <input type="file" id="fileManual" accept=".json,application/json,.csv,text/csv" hidden />
         <span class="chip" id="activeChips" hidden></span>
       </div>
-      <p class="hint">Dica: clique numa coluna do gráfico mensal ou numa barra de segmento para filtrar. Clique de novo para remover.</p>
+      <p class="hint">Dica: marque um ou mais segmentos/meses nos checkboxes, ou clique nos gráficos para marcar/desmarcar. O segmento Ativo fica sempre fora da análise.</p>
       <div class="manual-banner">
         <strong>Por que o custo “some”?</strong> O navegador não grava bem dados em arquivo aberto do computador.
         Depois de informar custos, clique em <strong>Baixar dashboard com meus custos</strong> e use
@@ -641,8 +688,52 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       if ([...el.options].some(o => o.value === current)) el.value = current;
     }}
 
+    function isAtivo(seg) {{
+      return String(seg || '').trim().toLowerCase() === 'ativo';
+    }}
+
+    function baseRows() {{
+      // Segmento Ativo sempre excluído da análise
+      return allRows().filter(r => !isAtivo(r.seg));
+    }}
+
+    function fillCheckboxes(boxId, values, name, selectedSet = null) {{
+      const box = document.getElementById(boxId);
+      const prev = selectedSet || new Set(
+        [...box.querySelectorAll('input[type=checkbox]:checked')].map(i => i.value)
+      );
+      box.innerHTML = values.map((v, idx) => {{
+        const id = `${{name}}_${{idx}}`;
+        const checked = prev.size === 0 ? '' : (prev.has(v) ? 'checked' : '');
+        return `<label for="${{id}}"><input type="checkbox" id="${{id}}" name="${{name}}" value="${{v.replaceAll('"', '&quot;')}}" ${{checked}} /> ${{v}}</label>`;
+      }}).join('');
+      box.querySelectorAll('input[type=checkbox]').forEach(inp => {{
+        inp.addEventListener('change', () => {{ state.page = 0; refresh(); }});
+      }});
+    }}
+
+    function checkedValues(name) {{
+      return [...document.querySelectorAll(`input[name="${{name}}"]:checked`)].map(i => i.value);
+    }}
+
+    function setAllChecks(name, on) {{
+      document.querySelectorAll(`input[name="${{name}}"]`).forEach(i => {{ i.checked = on; }});
+      state.page = 0;
+      refresh();
+    }}
+
+    function toggleCheckValue(name, value) {{
+      const inputs = [...document.querySelectorAll(`input[name="${{name}}"]`)];
+      const target = inputs.find(i => i.value === value);
+      if (!target) return;
+      target.checked = !target.checked;
+      state.page = 0;
+      refresh();
+    }}
+
     function initFilters() {{
-      const dates = ROWS.map(r => r.d).filter(Boolean).sort();
+      const usable = ROWS.filter(r => !isAtivo(r.seg));
+      const dates = usable.map(r => r.d).filter(Boolean).sort();
       if (dates.length) {{
         document.getElementById('fInicio').value = dates[0];
         document.getElementById('fFim').value = dates[dates.length - 1];
@@ -651,10 +742,13 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         document.getElementById('fFim').min = dates[0];
         document.getElementById('fFim').max = dates[dates.length - 1];
       }}
-      fillSelect('fSegmento', uniqueSorted(ROWS.map(r => r.seg)), 'Todos');
-      fillSelect('fCliente', uniqueSorted(ROWS.map(r => r.c)), 'Todos');
-      fillSelect('fUF', uniqueSorted(ROWS.map(r => r.uf)), 'Todas');
-      fillSelect('fMaterial', uniqueSorted(ROWS.map(r => r.mat)), 'Todos');
+      const segs = uniqueSorted(usable.map(r => r.seg));
+      const months = uniqueSorted(usable.map(r => ymOf(r.d)).filter(Boolean));
+      fillCheckboxes('fSegmentoBox', segs, 'seg');
+      fillCheckboxes('fMesBox', months, 'mes');
+      fillSelect('fCliente', uniqueSorted(usable.map(r => r.c)), 'Todos');
+      fillSelect('fUF', uniqueSorted(usable.map(r => r.uf)), 'Todas');
+      fillSelect('fMaterial', uniqueSorted(usable.map(r => r.mat)), 'Todos');
       saveManualCosts({{ showPersistBar: false }});
     }}
 
@@ -662,14 +756,14 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       return {{
         inicio: document.getElementById('fInicio').value || null,
         fim: document.getElementById('fFim').value || null,
-        segmento: document.getElementById('fSegmento').value || null,
+        segmentos: checkedValues('seg'),
         cliente: document.getElementById('fCliente').value || state.selectedCliente || null,
         uf: document.getElementById('fUF').value || null,
         material: document.getElementById('fMaterial').value || null,
         status: document.getElementById('fStatus').value || null,
         lucroFaixa: document.getElementById('fLucroFaixa').value || null,
         busca: (document.getElementById('fBusca').value || '').trim().toLowerCase(),
-        mes: document.getElementById('fMes').value || null,
+        meses: checkedValues('mes'),
         topN: Number(document.getElementById('fTopN').value || 10),
         pageSize: Number(document.getElementById('fPageSize').value || 50),
       }};
@@ -688,11 +782,11 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
 
     function applyFilters(baseFilters) {{
       const f = baseFilters || readFilters();
-      return allRows().filter(r => {{
+      return baseRows().filter(r => {{
         if (f.inicio && r.d && r.d < f.inicio) return false;
         if (f.fim && r.d && r.d > f.fim) return false;
         if (f.inicio && !r.d) return false;
-        if (f.segmento && r.seg !== f.segmento) return false;
+        if (f.segmentos && f.segmentos.length && !f.segmentos.includes(r.seg)) return false;
         if (f.cliente && r.c !== f.cliente) return false;
         if (f.uf && r.uf !== f.uf) return false;
         if (f.material && r.mat !== f.material) return false;
@@ -702,7 +796,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           return false;
         }}
         if (!inLucroFaixa(r.p, f.lucroFaixa)) return false;
-        if (f.mes && ymOf(r.d) !== f.mes) return false;
+        if (f.meses && f.meses.length && !f.meses.includes(ymOf(r.d))) return false;
         if (f.busca) {{
           const blob = `${{r.c || ''}} ${{r.cod || ''}} ${{r.desc || ''}} ${{r.n || ''}}`.toLowerCase();
           if (!blob.includes(f.busca)) return false;
@@ -842,7 +936,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           datasets: [{{
             label: 'Venda mensal',
             data: mensalVenda.values,
-            backgroundColor: mensalVenda.labels.map(l => l === filters.mes ? '#c45c26' : 'rgba(31,111,120,0.88)'),
+            backgroundColor: mensalVenda.labels.map(l => (filters.meses || []).includes(l) ? '#c45c26' : 'rgba(31,111,120,0.88)'),
             borderRadius: 7,
             maxBarThickness: 42
           }}]
@@ -853,10 +947,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           layout: {{ padding: {{ top: 12, right: 8, bottom: 4 }} }},
           onClick: (evt, els) => {{
             if (!els.length) return;
-            const label = mensalVenda.labels[els[0].index];
-            const mesEl = document.getElementById('fMes');
-            mesEl.value = mesEl.value === label ? '' : label;
-            refresh();
+            toggleCheckValue('mes', mensalVenda.labels[els[0].index]);
           }},
           plugins: {{
             legend: {{ display: false }},
@@ -893,10 +984,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           layout: {{ padding: {{ top: 12, right: 8, bottom: 4 }} }},
           onClick: (evt, els) => {{
             if (!els.length) return;
-            const label = mensalLucro.labels[els[0].index];
-            const mesEl = document.getElementById('fMes');
-            mesEl.value = mesEl.value === label ? '' : label;
-            refresh();
+            toggleCheckValue('mes', mensalLucro.labels[els[0].index]);
           }},
           plugins: {{
             legend: {{ display: false }},
@@ -922,7 +1010,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           datasets: [{{
             label: 'Venda',
             data: segs.map(x => x[1]),
-            backgroundColor: segs.map(x => x[0] === filters.segmento ? '#c45c26' : 'rgba(31,111,120,0.88)'),
+            backgroundColor: segs.map(x => (filters.segmentos || []).includes(x[0]) ? '#c45c26' : 'rgba(31,111,120,0.88)'),
             borderRadius: 7,
             maxBarThickness: 34
           }}]
@@ -934,10 +1022,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           layout: {{ padding: {{ right: 56 }} }},
           onClick: (evt, els) => {{
             if (!els.length) return;
-            const label = segs[els[0].index][0];
-            const el = document.getElementById('fSegmento');
-            el.value = el.value === label ? '' : label;
-            refresh();
+            toggleCheckValue('seg', segs[els[0].index][0]);
           }},
           plugins: {{
             legend: {{ display: false }},
@@ -994,9 +1079,9 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         }}
       }});
 
-      document.getElementById('mesNote').textContent = filters.mes
-        ? `Mês ativo: ${{filters.mes}} (clique novamente no gráfico para limpar).`
-        : 'Nenhum mês selecionado. Clique numa coluna para filtrar.';
+      document.getElementById('mesNote').textContent = (filters.meses && filters.meses.length)
+        ? `Meses ativos: ${{filters.meses.join(', ')}} (clique no gráfico ou desmarque o checkbox para alterar).`
+        : 'Nenhum mês marcado. Marque os checkboxes ou clique nas colunas para filtrar.';
     }}
 
     function renderClientes(rows, filters) {{
@@ -1102,7 +1187,10 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
             document.getElementById('fCliente').value = nome;
             state.selectedCliente = nome;
           }}
-          if (seg) document.getElementById('fSegmento').value = seg;
+          if (seg && !isAtivo(seg)) {{
+            const inputs = [...document.querySelectorAll('input[name="seg"]')];
+            inputs.forEach(i => {{ i.checked = (i.value === seg); }});
+          }}
           refresh();
         }});
       }});
@@ -1148,14 +1236,15 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
     function updateChips(filters) {{
       const chips = [];
       if (filters.inicio || filters.fim) chips.push(`Período: ${{fmtDate(filters.inicio)}} → ${{fmtDate(filters.fim)}}`);
-      if (filters.segmento) chips.push(`Segmento: ${{filters.segmento}}`);
+      if (filters.segmentos && filters.segmentos.length) chips.push(`Segmento: ${{filters.segmentos.join(', ')}}`);
       if (filters.cliente) chips.push(`Cliente: ${{filters.cliente}}`);
       if (filters.uf) chips.push(`UF: ${{filters.uf}}`);
       if (filters.material) chips.push(`Material: ${{filters.material}}`);
       if (filters.status) chips.push(`Status: ${{filters.status}}`);
-      if (filters.mes) chips.push(`Mês: ${{filters.mes}}`);
+      if (filters.meses && filters.meses.length) chips.push(`Mês: ${{filters.meses.join(', ')}}`);
       if (filters.busca) chips.push(`Busca: ${{filters.busca}}`);
       if (filters.lucroFaixa) chips.push(`Lucro: ${{filters.lucroFaixa}}`);
+      chips.push('Ativo excluído');
       const el = document.getElementById('activeChips');
       if (!chips.length) {{
         el.hidden = true;
@@ -1182,13 +1271,12 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       document.getElementById('fStatus').value = '';
       document.getElementById('fLucroFaixa').value = '';
       document.getElementById('fBusca').value = '';
-      document.getElementById('fMes').value = '';
       document.getElementById('fTopN').value = '10';
       document.getElementById('fPageSize').value = '50';
-      document.getElementById('fSegmento').value = '';
       document.getElementById('fCliente').value = '';
       document.getElementById('fUF').value = '';
       document.getElementById('fMaterial').value = '';
+      document.querySelectorAll('input[name="seg"], input[name="mes"]').forEach(i => {{ i.checked = false; }});
       state.selectedCliente = null;
       state.page = 0;
       refresh();
@@ -1287,12 +1375,16 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       downloadBlob('custos_manuais_rbt.csv', csv, 'text/csv;charset=utf-8;');
       downloadManualJson(false);
     }});
-    ['fInicio','fFim','fSegmento','fCliente','fUF','fMaterial','fStatus','fLucroFaixa','fMes','fTopN','fPageSize']
+    ['fInicio','fFim','fCliente','fUF','fMaterial','fStatus','fLucroFaixa','fTopN','fPageSize']
       .forEach(id => document.getElementById(id).addEventListener('change', () => {{ state.page = 0; refresh(); }}));
     document.getElementById('fBusca').addEventListener('input', () => {{
       clearTimeout(state._t);
       state._t = setTimeout(() => {{ state.page = 0; refresh(); }}, 250);
     }});
+    document.getElementById('btnSegAll').addEventListener('click', () => setAllChecks('seg', true));
+    document.getElementById('btnSegNone').addEventListener('click', () => setAllChecks('seg', false));
+    document.getElementById('btnMesAll').addEventListener('click', () => setAllChecks('mes', true));
+    document.getElementById('btnMesNone').addEventListener('click', () => setAllChecks('mes', false));
 
     initFilters();
     refresh();
