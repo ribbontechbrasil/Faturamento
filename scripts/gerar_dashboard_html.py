@@ -19,10 +19,11 @@ def br_money(v: float | None) -> str:
 def build_rows(df: pd.DataFrame) -> list[dict]:
     rows = []
     dts = pd.to_datetime(df["Data de emissão"], dayfirst=True, errors="coerce")
-    for i, r in df.iterrows():
+    for idx, (i, r) in enumerate(df.iterrows()):
         dt = dts.loc[i]
         rows.append(
             {
+                "id": idx,
                 "n": None if pd.isna(r.get("Número")) else str(r.get("Número")),
                 "c": None if pd.isna(r.get("Nome")) else str(r.get("Nome"))[:70],
                 "d": None if pd.isna(dt) else dt.strftime("%Y-%m-%d"),
@@ -187,6 +188,35 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
     .neg {{ color: #a12828; font-weight: 600; }}
     .pos {{ color: var(--good); font-weight: 600; }}
     .table-wrap {{ overflow: auto; max-height: 420px; }}
+    .cost-input {{
+      width: 110px;
+      border: 1px solid rgba(196,92,38,.45);
+      border-radius: 8px;
+      padding: .4rem .45rem;
+      font: 600 0.86rem "IBM Plex Sans", sans-serif;
+      color: var(--ink);
+      background: #fff8f3;
+    }}
+    .cost-input:focus {{ outline: 2px solid rgba(196,92,38,.35); border-color: var(--copper); }}
+    .cost-actions {{ display: flex; gap: .35rem; align-items: center; margin-top: .25rem; }}
+    .btn-mini {{
+      border: 0; border-radius: 999px; padding: .2rem .55rem;
+      font: 600 0.72rem "IBM Plex Sans", sans-serif; cursor: pointer;
+      background: rgba(31,111,120,.12); color: var(--teal-deep);
+    }}
+    .btn-mini.danger {{ background: rgba(161,40,40,.12); color: #a12828; }}
+    .status-pill {{
+      display: inline-flex; padding: .15rem .45rem; border-radius: 999px;
+      font-size: .75rem; font-weight: 600;
+    }}
+    .status-ok {{ background: rgba(31,122,76,.12); color: var(--good); }}
+    .status-inc {{ background: rgba(196,92,38,.14); color: #8a3d12; }}
+    .status-manual {{ background: rgba(31,111,120,.14); color: var(--teal-deep); }}
+    .manual-banner {{
+      margin-top: .7rem; padding: .65rem .8rem; border-radius: 12px;
+      background: rgba(196,92,38,.1); border: 1px solid rgba(196,92,38,.22);
+      color: var(--ink-soft); font-size: .86rem;
+    }}
     .footer {{ margin-top: 1.4rem; text-align: center; color: var(--ink-soft); font-size: .84rem; }}
 
     @keyframes rise {{
@@ -238,8 +268,10 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         <label>Status do custo
           <select id="fStatus">
             <option value="">Todos</option>
-            <option value="ok">Custo ok</option>
+            <option value="ok">Custo ok (automático)</option>
             <option value="inc">Custo incompleto</option>
+            <option value="manual">Custo manual</option>
+            <option value="com_custo">Com custo (ok + manual)</option>
           </select>
         </label>
         <label>Faixa de % lucro
@@ -277,9 +309,16 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       <div class="filter-actions">
         <button class="btn-primary" id="btnAplicar" type="button">Aplicar filtros</button>
         <button class="btn-ghost" id="btnLimpar" type="button">Limpar filtros</button>
+        <button class="btn-ghost" id="btnExportManual" type="button">Exportar custos manuais</button>
+        <button class="btn-ghost" id="btnClearManual" type="button">Limpar custos manuais</button>
         <span class="chip" id="activeChips" hidden></span>
       </div>
       <p class="hint">Dica: clique numa coluna do gráfico mensal ou numa barra de segmento para filtrar. Clique de novo para remover.</p>
+      <div class="manual-banner">
+        Itens com <strong>custo incompleto</strong> podem receber custo manual na tabela “Lucro por item”.
+        O valor é salvo neste navegador e recalcula frete (3%), imposto (9,2%), venda líquida e % lucro.
+        <span id="manualCountLabel"></span>
+      </div>
     </section>
 
     <section>
@@ -392,6 +431,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
 
   <script>
     const ROWS = {data_json};
+    const MANUAL_KEY = 'rbt_manual_costs_v1';
 
     const money = (v) => (v == null || Number.isNaN(v))
       ? '—'
@@ -405,12 +445,76 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       return `${{d}}/${{m}}/${{y}}`;
     }};
     const ymOf = (iso) => iso ? iso.slice(0, 7) : null;
+    const parseMoneyInput = (raw) => {{
+      if (raw == null) return null;
+      let t = String(raw).trim();
+      if (!t) return null;
+      t = t.replace(/R\\$\\s?/i, '').replace(/\\s/g, '');
+      if (t.includes(',')) t = t.replace(/\\./g, '').replace(',', '.');
+      const n = Number(t);
+      return Number.isFinite(n) ? n : null;
+    }};
+    const formatInputMoney = (v) => {{
+      if (v == null || Number.isNaN(v)) return '';
+      return v.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+    }};
 
     const state = {{
       page: 0,
       charts: {{}},
       selectedCliente: null,
+      manualCosts: loadManualCosts(),
     }};
+
+    function loadManualCosts() {{
+      try {{
+        const raw = localStorage.getItem(MANUAL_KEY);
+        if (!raw) return {{}};
+        const obj = JSON.parse(raw);
+        const out = {{}};
+        Object.entries(obj || {{}}).forEach(([k, v]) => {{
+          const n = Number(v);
+          if (Number.isFinite(n)) out[String(k)] = n;
+        }});
+        return out;
+      }} catch (e) {{
+        return {{}};
+      }}
+    }}
+
+    function saveManualCosts() {{
+      localStorage.setItem(MANUAL_KEY, JSON.stringify(state.manualCosts));
+      const n = Object.keys(state.manualCosts).length;
+      const el = document.getElementById('manualCountLabel');
+      if (el) el.textContent = n ? ` · ${{n}} custo(s) manual(is) salvo(s) neste navegador.` : '';
+    }}
+
+    function enrichRow(r) {{
+      const out = {{ ...r }};
+      const key = String(r.id);
+      const manual = state.manualCosts[key];
+      if (r.st === 'inc' && manual != null && Number.isFinite(manual)) {{
+        out.ct = Math.round(manual * 100) / 100;
+        out.f = out.v != null ? Math.round(out.v * 0.03 * 100) / 100 : null;
+        out.i = out.v != null ? Math.round(out.v * 0.092 * 100) / 100 : null;
+        if (out.v != null) {{
+          out.l = Math.round((out.v - out.ct - (out.f || 0) - (out.i || 0)) * 100) / 100;
+          out.p = out.ct ? out.l / out.ct : null;
+        }} else {{
+          out.l = null;
+          out.p = null;
+        }}
+        out.st = 'manual';
+        out.manual = true;
+      }} else {{
+        out.manual = false;
+      }}
+      return out;
+    }}
+
+    function allRows() {{
+      return ROWS.map(enrichRow);
+    }}
 
     function uniqueSorted(values) {{
       return [...new Set(values.filter(Boolean))].sort((a,b) => a.localeCompare(b, 'pt-BR'));
@@ -438,6 +542,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       fillSelect('fCliente', uniqueSorted(ROWS.map(r => r.c)), 'Todos');
       fillSelect('fUF', uniqueSorted(ROWS.map(r => r.uf)), 'Todas');
       fillSelect('fMaterial', uniqueSorted(ROWS.map(r => r.mat)), 'Todos');
+      saveManualCosts();
     }}
 
     function readFilters() {{
@@ -470,7 +575,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
 
     function applyFilters(baseFilters) {{
       const f = baseFilters || readFilters();
-      return ROWS.filter(r => {{
+      return allRows().filter(r => {{
         if (f.inicio && r.d && r.d < f.inicio) return false;
         if (f.fim && r.d && r.d > f.fim) return false;
         if (f.inicio && !r.d) return false;
@@ -478,7 +583,11 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         if (f.cliente && r.c !== f.cliente) return false;
         if (f.uf && r.uf !== f.uf) return false;
         if (f.material && r.mat !== f.material) return false;
-        if (f.status && r.st !== f.status) return false;
+        if (f.status === 'com_custo') {{
+          if (!(r.st === 'ok' || r.st === 'manual')) return false;
+        }} else if (f.status && r.st !== f.status) {{
+          return false;
+        }}
         if (!inLucroFaixa(r.p, f.lucroFaixa)) return false;
         if (f.mes && ymOf(r.d) !== f.mes) return false;
         if (f.busca) {{
@@ -514,7 +623,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
     }}
 
     function updateKpis(rows) {{
-      let venda = 0, custo = 0, liq = 0, frete = 0, imposto = 0, ok = 0;
+      let venda = 0, custo = 0, liq = 0, frete = 0, imposto = 0, ok = 0, manual = 0;
       for (const r of rows) {{
         if (r.v != null) venda += r.v;
         if (r.ct != null) custo += r.ct;
@@ -522,13 +631,33 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         if (r.f != null) frete += r.f;
         if (r.i != null) imposto += r.i;
         if (r.st === 'ok') ok += 1;
+        if (r.st === 'manual') manual += 1;
       }}
       const lucro = custo > 0 ? liq / custo : null;
       document.getElementById('kpiVenda').textContent = money(venda);
       document.getElementById('kpiCusto').textContent = money(custo);
       document.getElementById('kpiLiq').textContent = money(liq);
       document.getElementById('kpiLucro').textContent = pct(lucro);
-      document.getElementById('kpiItens').textContent = rows.length.toLocaleString('pt-BR') + ` (${{ok.toLocaleString('pt-BR')}} ok)`;
+      document.getElementById('kpiItens').textContent =
+        rows.length.toLocaleString('pt-BR') +
+        ` (${{ok.toLocaleString('pt-BR')}} ok · ${{manual.toLocaleString('pt-BR')}} manual)`;
+    }}
+
+    function statusLabel(st) {{
+      if (st === 'ok') return '<span class="status-pill status-ok">ok</span>';
+      if (st === 'manual') return '<span class="status-pill status-manual">manual</span>';
+      return '<span class="status-pill status-inc">incompleto</span>';
+    }}
+
+    function setManualCost(id, value) {{
+      const key = String(id);
+      if (value == null) {{
+        delete state.manualCosts[key];
+      }} else {{
+        state.manualCosts[key] = value;
+      }}
+      saveManualCosts();
+      refresh();
     }}
 
     function upsertChart(id, config) {{
@@ -744,6 +873,10 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
 
     function renderItens(rows, filters) {{
       const sorted = [...rows].sort((a,b) => {{
+        // incompletos e manuais primeiro facilitam a digitação
+        const rank = (st) => st === 'inc' ? 0 : st === 'manual' ? 1 : 2;
+        const ra = rank(a.st), rb = rank(b.st);
+        if (ra !== rb) return ra - rb;
         const da = a.d || '';
         const db = b.d || '';
         if (da !== db) return db.localeCompare(da);
@@ -757,10 +890,22 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       const pageRows = sorted.slice(start, start + pageSize);
 
       document.getElementById('itensMeta').textContent =
-        `${{sorted.length.toLocaleString('pt-BR')}} itens · página ${{state.page + 1}} de ${{pages}}`;
+        `${{sorted.length.toLocaleString('pt-BR')}} itens · página ${{state.page + 1}} de ${{pages}} · digite o custo nos incompletos`;
 
       const tb = document.getElementById('tblItens');
-      tb.innerHTML = pageRows.map(r => `
+      tb.innerHTML = pageRows.map(r => {{
+        const editable = r.st === 'inc' || r.st === 'manual';
+        const costCell = editable
+          ? `<div>
+              <input class="cost-input" data-id="${{r.id}}" inputmode="decimal"
+                placeholder="0,00" value="${{formatInputMoney(r.manual ? r.ct : state.manualCosts[String(r.id)])}}" />
+              <div class="cost-actions">
+                <button type="button" class="btn-mini btn-save-cost" data-id="${{r.id}}">Salvar</button>
+                ${{r.st === 'manual' ? `<button type="button" class="btn-mini danger btn-clear-cost" data-id="${{r.id}}">Limpar</button>` : ''}}
+              </div>
+            </div>`
+          : money(r.ct);
+        return `
         <tr class="item-row" data-cliente="${{(r.c || '').replaceAll('"', '&quot;')}}" data-seg="${{(r.seg || '').replaceAll('"', '&quot;')}}">
           <td>${{fmtDate(r.d)}}</td>
           <td>${{r.n || '—'}}</td>
@@ -768,15 +913,16 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           <td>${{r.seg || '—'}}</td>
           <td title="${{(r.desc || '').replaceAll('"', '&quot;')}}">${{r.desc || '—'}}</td>
           <td>${{money(r.v)}}</td>
-          <td>${{money(r.ct)}}</td>
+          <td class="cost-cell">${{costCell}}</td>
           <td class="${{(r.l ?? 0) < 0 ? 'neg' : ''}}">${{money(r.l)}}</td>
           <td class="${{(r.p ?? 0) < 0 ? 'neg' : 'pos'}}">${{pct(r.p)}}</td>
-          <td>${{r.st === 'ok' ? 'ok' : 'incompleto'}}</td>
-        </tr>
-      `).join('') || `<tr><td colspan="10">Nenhum item para os filtros atuais.</td></tr>`;
+          <td>${{statusLabel(r.st)}}</td>
+        </tr>`;
+      }}).join('') || `<tr><td colspan="10">Nenhum item para os filtros atuais.</td></tr>`;
 
       tb.querySelectorAll('tr[data-cliente]').forEach(tr => {{
-        tr.addEventListener('click', () => {{
+        tr.addEventListener('click', (ev) => {{
+          if (ev.target.closest('.cost-cell')) return;
           const nome = tr.getAttribute('data-cliente');
           const seg = tr.getAttribute('data-seg');
           if (nome) {{
@@ -785,6 +931,43 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           }}
           if (seg) document.getElementById('fSegmento').value = seg;
           refresh();
+        }});
+      }});
+
+      tb.querySelectorAll('.btn-save-cost').forEach(btn => {{
+        btn.addEventListener('click', (ev) => {{
+          ev.stopPropagation();
+          const id = btn.getAttribute('data-id');
+          const input = tb.querySelector(`.cost-input[data-id="${{id}}"]`);
+          const val = parseMoneyInput(input && input.value);
+          if (val == null || val < 0) {{
+            alert('Informe um custo válido (ex.: 12,50).');
+            return;
+          }}
+          setManualCost(id, val);
+        }});
+      }});
+
+      tb.querySelectorAll('.btn-clear-cost').forEach(btn => {{
+        btn.addEventListener('click', (ev) => {{
+          ev.stopPropagation();
+          setManualCost(btn.getAttribute('data-id'), null);
+        }});
+      }});
+
+      tb.querySelectorAll('.cost-input').forEach(input => {{
+        input.addEventListener('click', (ev) => ev.stopPropagation());
+        input.addEventListener('keydown', (ev) => {{
+          if (ev.key === 'Enter') {{
+            ev.preventDefault();
+            const id = input.getAttribute('data-id');
+            const val = parseMoneyInput(input.value);
+            if (val == null || val < 0) {{
+              alert('Informe um custo válido (ex.: 12,50).');
+              return;
+            }}
+            setManualCost(id, val);
+          }}
         }});
       }});
     }}
@@ -845,6 +1028,46 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
     document.getElementById('btnLimpar').addEventListener('click', clearFilters);
     document.getElementById('btnPrev').addEventListener('click', () => {{ state.page -= 1; refresh(); }});
     document.getElementById('btnNext').addEventListener('click', () => {{ state.page += 1; refresh(); }});
+    document.getElementById('btnClearManual').addEventListener('click', () => {{
+      if (!Object.keys(state.manualCosts).length) {{
+        alert('Não há custos manuais salvos.');
+        return;
+      }}
+      if (confirm('Apagar todos os custos manuais salvos neste navegador?')) {{
+        state.manualCosts = {{}};
+        saveManualCosts();
+        refresh();
+      }}
+    }});
+    document.getElementById('btnExportManual').addEventListener('click', () => {{
+      const ids = Object.keys(state.manualCosts);
+      if (!ids.length) {{
+        alert('Não há custos manuais para exportar.');
+        return;
+      }}
+      const byId = new Map(ROWS.map(r => [String(r.id), r]));
+      const lines = [['id','numero_nf','cliente','codigo','descricao','venda','custo_manual']];
+      ids.forEach(id => {{
+        const r = byId.get(id) || {{}};
+        lines.push([
+          id,
+          r.n || '',
+          (r.c || '').replaceAll(';', ','),
+          r.cod || '',
+          (r.desc || '').replaceAll(';', ','),
+          r.v != null ? String(r.v).replace('.', ',') : '',
+          String(state.manualCosts[id]).replace('.', ',')
+        ]);
+      }});
+      const csv = lines.map(row => row.join(';')).join('\\n');
+      const blob = new Blob([csv], {{ type: 'text/csv;charset=utf-8;' }});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'custos_manuais_rbt.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    }});
     ['fInicio','fFim','fSegmento','fCliente','fUF','fMaterial','fStatus','fLucroFaixa','fMes','fTopN','fPageSize']
       .forEach(id => document.getElementById(id).addEventListener('change', () => {{ state.page = 0; refresh(); }}));
     document.getElementById('fBusca').addEventListener('input', () => {{
