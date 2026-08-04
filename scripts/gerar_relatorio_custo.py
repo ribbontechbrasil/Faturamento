@@ -473,6 +473,21 @@ def main() -> None:
     print(f"OK: {(df['Status custo'] == STATUS_OK).sum()}")
     print(f"Custo incompleto: {(df['Status custo'] == STATUS_INCOMPLETO).sum()}")
 
+    # Gera também o dashboard HTML ao lado do Excel
+    try:
+        import sys
+
+        scripts_dir = Path(__file__).resolve().parent
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        from gerar_dashboard_html import build_payload, render_html
+
+        html_path = output_path.with_name("Dashboard_Custo_Faturamento_RBT.html")
+        html_path.write_text(render_html(build_payload(df)), encoding="utf-8")
+        print(f"Dashboard HTML gerado: {html_path}")
+    except Exception as exc:  # pragma: no cover - best effort
+        print(f"Aviso: não foi possível gerar o dashboard HTML ({exc})")
+
 
 if __name__ == "__main__":
     main()

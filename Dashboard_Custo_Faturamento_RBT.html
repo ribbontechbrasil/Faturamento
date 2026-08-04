@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RibbonTech · Dashboard de Custo e Lucro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Sora:wght@500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --ink: #14212b;
+      --ink-soft: #2a3b49;
+      --mist: #e6eef3;
+      --panel: rgba(255,255,255,0.78);
+      --line: rgba(20,33,43,0.12);
+      --teal: #1f6f78;
+      --teal-deep: #14545c;
+      --copper: #c45c26;
+      --copper-soft: #f0d2c2;
+      --good: #1f7a4c;
+      --warn: #a15c12;
+      --shadow: 0 18px 50px rgba(20,33,43,0.12);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(31,111,120,0.22), transparent 55%),
+        radial-gradient(900px 500px at 90% 0%, rgba(196,92,38,0.16), transparent 50%),
+        linear-gradient(180deg, #d9e5ec 0%, var(--mist) 40%, #f4f7f9 100%);
+      min-height: 100vh;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.035;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+      z-index: 0;
+    }
+
+    .wrap {
+      position: relative;
+      z-index: 1;
+      width: min(1180px, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 1.5rem 0 3rem;
+    }
+
+    .hero {
+      display: grid;
+      gap: 1.25rem;
+      padding: 1.6rem 1.6rem 1.4rem;
+      border-radius: 28px;
+      background:
+        linear-gradient(135deg, rgba(20,33,43,0.96), rgba(31,111,120,0.88) 58%, rgba(196,92,38,0.72));
+      color: #f7fafc;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      position: relative;
+      animation: rise 0.7s ease both;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -80px;
+      top: -60px;
+      width: 280px;
+      height: 280px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,255,255,0.18), transparent 65%);
+    }
+
+    .brand {
+      font-family: Sora, sans-serif;
+      font-size: clamp(2rem, 5vw, 3rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin: 0;
+      line-height: 1.05;
+    }
+
+    .hero p {
+      margin: 0.35rem 0 0;
+      max-width: 46ch;
+      color: rgba(247,250,252,0.86);
+      font-size: 1.02rem;
+    }
+
+    .period {
+      display: inline-flex;
+      margin-top: 0.9rem;
+      padding: 0.35rem 0.7rem;
+      border: 1px solid rgba(255,255,255,0.22);
+      border-radius: 999px;
+      font-size: 0.86rem;
+      color: rgba(247,250,252,0.9);
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.85rem;
+      margin-top: 0.4rem;
+    }
+
+    .kpi {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 16px;
+      padding: 0.9rem 1rem;
+      backdrop-filter: blur(6px);
+      animation: rise 0.8s ease both;
+    }
+    .kpi:nth-child(2) { animation-delay: 0.06s; }
+    .kpi:nth-child(3) { animation-delay: 0.12s; }
+    .kpi:nth-child(4) { animation-delay: 0.18s; }
+
+    .kpi span {
+      display: block;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: rgba(247,250,252,0.72);
+      margin-bottom: 0.35rem;
+    }
+    .kpi strong {
+      font-family: Sora, sans-serif;
+      font-size: clamp(1.15rem, 2.4vw, 1.55rem);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    section {
+      margin-top: 1.4rem;
+      animation: rise 0.75s ease both;
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 1rem;
+      margin-bottom: 0.8rem;
+    }
+    .section-head h2 {
+      font-family: Sora, sans-serif;
+      font-size: 1.35rem;
+      margin: 0;
+      letter-spacing: -0.02em;
+    }
+    .section-head p {
+      margin: 0.2rem 0 0;
+      color: var(--ink-soft);
+      font-size: 0.95rem;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 1rem 1.1rem 1.15rem;
+      backdrop-filter: blur(10px);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 1rem;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+    }
+
+    .chart-box {
+      position: relative;
+      height: 300px;
+    }
+    .chart-box.tall { height: 340px; }
+
+    .seg-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.85rem;
+    }
+    .seg-card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0.65));
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 0.95rem 1rem;
+      transition: transform 0.25s ease, box-shadow 0.25s ease;
+    }
+    .seg-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 14px 30px rgba(20,33,43,0.1);
+    }
+    .seg-card h3 {
+      margin: 0;
+      font-family: Sora, sans-serif;
+      font-size: 1rem;
+    }
+    .seg-venda {
+      margin: 0.45rem 0 0.55rem;
+      font-family: Sora, sans-serif;
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: var(--teal-deep);
+    }
+    .seg-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      color: var(--ink-soft);
+      margin-bottom: 0.45rem;
+    }
+    .bar {
+      height: 7px;
+      background: rgba(20,33,43,0.08);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .bar i {
+      display: block;
+      height: 100%;
+      width: var(--w);
+      background: linear-gradient(90deg, var(--teal), #3aa0ab);
+      border-radius: inherit;
+      transform-origin: left;
+      animation: fillBar 1.1s ease both;
+    }
+    .seg-card small {
+      display: block;
+      margin-top: 0.4rem;
+      color: var(--ink-soft);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.7rem 0.45rem;
+      border-bottom: 1px solid var(--line);
+    }
+    th {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--ink-soft);
+      font-weight: 600;
+    }
+    tr:hover td { background: rgba(31,111,120,0.05); }
+
+    .legend-note {
+      margin-top: 0.8rem;
+      color: var(--ink-soft);
+      font-size: 0.88rem;
+    }
+
+    .footer {
+      margin-top: 1.6rem;
+      color: var(--ink-soft);
+      font-size: 0.85rem;
+      text-align: center;
+    }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fillBar {
+      from { transform: scaleX(0); }
+      to { transform: scaleX(1); }
+    }
+
+    @media (max-width: 920px) {
+      .kpi-grid, .grid-2, .grid-3, .seg-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    @media (max-width: 640px) {
+      .wrap { width: min(100% - 1.2rem, 1180px); }
+      .kpi-grid, .grid-2, .grid-3, .seg-grid {
+        grid-template-columns: 1fr;
+      }
+      .chart-box, .chart-box.tall { height: 260px; }
+      table { font-size: 0.82rem; }
+      th:nth-child(2), td:nth-child(2) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <div>
+        <h1 class="brand">RibbonTech</h1>
+        <p>Dashboard de custo, frete, imposto e lucro do faturamento — visão executiva dos resultados calculados.</p>
+        <div class="period">Período: 05/12/2021 a 17/07/2026</div>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi"><span>Venda total</span><strong>R$ 10.614.432,23</strong></div>
+        <div class="kpi"><span>Custo calculado</span><strong>R$ 5.706.027,53</strong></div>
+        <div class="kpi"><span>Venda líquida</span><strong>R$ 1.736.068,99</strong></div>
+        <div class="kpi"><span>% Lucro</span><strong>30,4%</strong></div>
+      </div>
+    </header>
+
+    <section>
+      <div class="section-head">
+        <div>
+          <h2>Cobertura do cálculo</h2>
+          <p>4.101 itens com custo ok · 1.217 custo incompleto · cobertura 77,1%</p>
+        </div>
+      </div>
+      <div class="grid-3">
+        <article class="panel">
+          <div class="chart-box"><canvas id="chartCobertura"></canvas></div>
+          <p class="legend-note">Itens válidos (sem NF cancelada/rejeitada/denegada): 5.318.</p>
+        </article>
+        <article class="panel">
+          <div class="chart-box"><canvas id="chartPendencias"></canvas></div>
+          <p class="legend-note">Principais motivos de “custo incompleto”.</p>
+        </article>
+        <article class="panel">
+          <div class="chart-box"><canvas id="chartComposicao"></canvas></div>
+          <p class="legend-note">Sobre itens com custo ok: frete R$ 254.285,76 · imposto R$ 779.809,66.</p>
+        </article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div>
+          <h2>Desempenho por segmento</h2>
+          <p>Venda, custo e venda líquida nos itens com cálculo completo.</p>
+        </div>
+      </div>
+      <div class="seg-grid">
+        
+            <article class="seg-card">
+              <h3>Ribbon</h3>
+              <p class="seg-venda">R$ 6.647.546,28</p>
+              <div class="seg-meta">
+                <span>3.143 ok</span>
+                <span>574 incompleto</span>
+              </div>
+              <div class="bar"><i style="--w:84.6%"></i></div>
+              <small>Cobertura 84,6%</small>
+            </article>
+            
+            <article class="seg-card">
+              <h3>Etiqueta Branca</h3>
+              <p class="seg-venda">R$ 2.866.459,91</p>
+              <div class="seg-meta">
+                <span>707 ok</span>
+                <span>226 incompleto</span>
+              </div>
+              <div class="bar"><i style="--w:75.8%"></i></div>
+              <small>Cobertura 75,8%</small>
+            </article>
+            
+            <article class="seg-card">
+              <h3>Suprimentos</h3>
+              <p class="seg-venda">R$ 832.684,43</p>
+              <div class="seg-meta">
+                <span>172 ok</span>
+                <span>282 incompleto</span>
+              </div>
+              <div class="bar"><i style="--w:37.9%"></i></div>
+              <small>Cobertura 37,9%</small>
+            </article>
+            
+            <article class="seg-card">
+              <h3>Etiqueta Colorida</h3>
+              <p class="seg-venda">R$ 228.801,51</p>
+              <div class="seg-meta">
+                <span>79 ok</span>
+                <span>93 incompleto</span>
+              </div>
+              <div class="bar"><i style="--w:45.9%"></i></div>
+              <small>Cobertura 45,9%</small>
+            </article>
+            
+            <article class="seg-card">
+              <h3>Ativo</h3>
+              <p class="seg-venda">R$ 14.378,32</p>
+              <div class="seg-meta">
+                <span>0 ok</span>
+                <span>16 incompleto</span>
+              </div>
+              <div class="bar"><i style="--w:0.0%"></i></div>
+              <small>Cobertura 0,0%</small>
+            </article>
+            
+            <article class="seg-card">
+              <h3>Revenda</h3>
+              <p class="seg-venda">R$ 13.490,72</p>
+              <div class="seg-meta">
+                <span>0 ok</span>
+                <span>8 incompleto</span>
+              </div>
+              <div class="bar"><i style="--w:0.0%"></i></div>
+              <small>Cobertura 0,0%</small>
+            </article>
+            
+            <article class="seg-card">
+              <h3>Outro</h3>
+              <p class="seg-venda">R$ 11.071,06</p>
+              <div class="seg-meta">
+                <span>0 ok</span>
+                <span>18 incompleto</span>
+              </div>
+              <div class="bar"><i style="--w:0.0%"></i></div>
+              <small>Cobertura 0,0%</small>
+            </article>
+            
+      </div>
+      <div class="panel" style="margin-top:1rem;">
+        <div class="chart-box tall"><canvas id="chartSegmento"></canvas></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div>
+          <h2>Evolução mensal</h2>
+          <p>Venda, custo e venda líquida ao longo do tempo (somente itens ok).</p>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="chart-box tall"><canvas id="chartMensal"></canvas></div>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div>
+        <div class="section-head">
+          <div>
+            <h2>Top UFs</h2>
+            <p>Maiores volumes de venda com custo calculado.</p>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="chart-box"><canvas id="chartUF"></canvas></div>
+        </div>
+      </div>
+      <div>
+        <div class="section-head">
+          <div>
+            <h2>Materiais de etiqueta</h2>
+            <p>Participação por substrato nos itens ok.</p>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="chart-box"><canvas id="chartMaterial"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div>
+          <h2>Top 10 clientes</h2>
+          <p>% Lucro = venda líquida ÷ custo total do item.</p>
+        </div>
+      </div>
+      <div class="panel" style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Itens</th>
+              <th>Venda</th>
+              <th>Custo</th>
+              <th>Venda líquida</th>
+              <th>% Lucro</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Frigorífico Industrial Vale do Piranga S/A</td><td>32</td><td>R$ 852.491,52</td><td>R$ 566.784,00</td><td>R$ 181.703,55</td><td>32,1%</td></tr>
+<tr><td>Supermercados BH Comércio de Alimentos S/A</td><td>127</td><td>R$ 831.170,20</td><td>R$ 548.120,64</td><td>R$ 181.646,80</td><td>33,1%</td></tr>
+<tr><td>Frigorífico Vale do Sapucaí Ltda.</td><td>44</td><td>R$ 317.212,10</td><td>R$ 250.371,42</td><td>R$ 28.140,80</td><td>11,2%</td></tr>
+<tr><td>ALS Brasil Ltda.</td><td>82</td><td>R$ 288.939,47</td><td>R$ 194.516,29</td><td>R$ 59.172,57</td><td>30,4%</td></tr>
+<tr><td>Organização Verdemar Ltda</td><td>213</td><td>R$ 265.701,27</td><td>R$ 176.854,10</td><td>R$ 56.431,62</td><td>31,9%</td></tr>
+<tr><td>Nutrisantos Alimentação Animal LTDA</td><td>121</td><td>R$ 237.369,93</td><td>R$ 164.363,44</td><td>R$ 44.047,36</td><td>26,8%</td></tr>
+<tr><td>Base Alimentos Brasil LTDA</td><td>69</td><td>R$ 200.628,14</td><td>R$ 147.269,90</td><td>R$ 28.881,61</td><td>19,6%</td></tr>
+<tr><td>Organizações Francap S/A</td><td>17</td><td>R$ 179.293,68</td><td>R$ 113.864,48</td><td>R$ 43.555,37</td><td>38,3%</td></tr>
+<tr><td>Drogaria Wanessa LTDA</td><td>65</td><td>R$ 169.696,98</td><td>R$ 126.736,32</td><td>R$ 22.257,63</td><td>17,6%</td></tr>
+<tr><td>PROFARMA DISTRIBUIDORA DE PRODUTOS FARMACEUTICOS</td><td>61</td><td>R$ 154.675,16</td><td>R$ 96.655,15</td><td>R$ 39.149,64</td><td>40,5%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <p class="footer">
+      Gerado a partir de Relatorio_Custo_Faturamento_RBT.xlsx · RibbonTech Brasil
+    </p>
+  </div>
+
+  <script>
+    const DATA = {"periodo": "05/12/2021 a 17/07/2026", "kpis": {"itens": 5318, "ok": 4101, "incompleto": 1217, "cobertura": 0.7711545693869876, "venda_total": 10614432.23, "custo_ok": 5706027.531426912, "liquida_ok": 1736068.9918930884, "frete_ok": 254285.75819999998, "imposto_ok": 779809.65848, "lucro_pct": 0.30425177276684956}, "segmentos": {"labels": ["Ribbon", "Etiqueta Branca", "Suprimentos", "Etiqueta Colorida", "Ativo", "Revenda", "Outro"], "venda": [6647546.28, 2866459.91, 832684.4299999999, 228801.51, 14378.32, 13490.72, 11071.060000000001], "custo": [3881261.0, 1496525.8883506877, 229513.44999999998, 98727.19307622411, 0.0, 0.0, 0.0], "liquida": [1285079.71732, 373965.7330893123, 36789.99942000001, 40233.542063775894, 0.0, 0.0, 0.0], "ok": [3143, 707, 172, 79, 0, 0, 0], "incompleto": [574, 226, 282, 93, 16, 8, 18]}, "mensal": {"labels": ["2021-12", "2022-01", "2022-02", "2022-03", "2022-04", "2022-05", "2022-06", "2022-07", "2022-08", "2022-09", "2022-10", "2022-11", "2022-12", "2023-01", "2023-02", "2023-03", "2023-04", "2023-05", "2023-06", "2023-07", "2023-08", "2023-09", "2023-10", "2023-11", "2023-12", "2024-01", "2024-02", "2024-03", "2024-04", "2024-05", "2024-06", "2024-07", "2024-08", "2024-09", "2024-10", "2024-11", "2024-12", "2025-01", "2025-02", "2025-03", "2025-04", "2025-05", "2025-06", "2025-07", "2025-08", "2025-09", "2025-10", "2025-11", "2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"], "venda": [18284.37, 50113.81, 39086.16, 54843.82, 51381.63, 82863.8, 46572.85, 57400.04, 78309.79000000001, 56431.01, 49312.86, 77683.72, 83115.98, 85200.25, 76106.4, 90091.39, 124157.24, 103385.99, 110764.93000000001, 149380.45, 162486.23, 157225.46, 171544.04, 137622.21, 114250.06, 123332.51000000001, 143510.5, 110367.24, 174138.02, 139957.96, 138589.82, 191617.68, 167918.53, 197558.96, 174826.22, 153527.16, 201099.49, 255758.12, 259914.19, 179923.09, 239022.96, 238565.4, 194231.33000000002, 279071.93, 240383.06, 254328.45, 268660.09, 223127.3, 204126.63999999998, 202750.37, 222526.24, 249218.94, 243614.22, 246496.71, 228585.25, 101829.07], "custo": [10636.37, 32992.81, 26072.16, 36522.46, 32093.02, 53566.3, 30272.32, 36391.28, 49694.7, 35525.86928, 31075.48, 49850.03, 52638.21464, 50530.797999999995, 49155.2016, 57387.288199999995, 85808.08345454546, 69958.7736, 72002.31368, 103033.315488, 111398.8964, 104630.22323999999, 120345.82, 94848.921408, 79511.030536, 87134.2844, 100855.117368, 75199.2576, 121585.831244, 93250.22146, 96879.310056, 127029.94685670873, 118056.51489254794, 138621.82735801974, 118891.55971253425, 104160.14019232191, 137704.44980928805, 174070.85608527163, 174767.22023376887, 123869.19683969358, 159349.79628948247, 162574.01314820215, 130242.92741167908, 188240.91877281127, 161801.83481729, 171738.06535451437, 178676.20308839827, 149355.11185822787, 124555.43383204701, 134363.75317752146, 151879.02916837874, 170602.389345544, 167817.33488445907, 170346.08152623416, 149868.0075207952, 66599.2175966265], "liquida": [5417.3068600000015, 11007.11518, 8245.488480000002, 11630.41396, 13020.05114, 19188.1164, 10618.6423, 14005.95512, 19061.29562, 14020.5575, 12221.21108, 18356.27616, 20337.6158, 24275.0215, 17666.2176, 21712.952220000003, 23201.97326545455, 20814.125620000003, 25249.29486, 28122.719612, 31264.01354, 33413.73064, 30269.847120000002, 25983.378972000002, 20800.522144000002, 21151.659380000005, 25147.101631999998, 21703.17912, 31307.350316, 29632.867420000002, 24802.551904, 41210.37618329126, 29375.95444745206, 34834.93952198026, 34605.86144746575, 30636.706287678084, 38860.90241071193, 50484.773274728366, 53437.43858623115, 34103.27618030642, 50512.36259051752, 46886.40805179785, 40292.18032832092, 56784.23576718872, 49254.491862710005, 51562.31374548564, 57207.35593160174, 46550.65754177211, 54667.75608795299, 43651.07168247853, 43499.00955162127, 48211.83997445599, 46075.95027554095, 46078.02985376584, 50829.84197920482, 22806.705863373496]}, "uf": {"labels": ["MG", "SP", "ES", "PE", "DF", "RJ", "GO", "PR"], "venda": [6968043.8, 761721.19, 150683.91, 126821.52, 101822.8, 99622.11, 98856.34, 47963.68]}, "pendencias": {"labels": ["Sem custo em Custos_RS", "Tubete não identificado", "Material não identificado", "Qtd. do rolo não identificada", "Segmento sem regra de custo", "Dimensão não identificada", "Tubete 2,5\" sem preço"], "qtd": [856, 140, 108, 54, 42, 15, 2]}, "materiais": {"labels": ["Couche", "Bopp", "Termico"], "venda": [1400366.52, 873307.11, 14996.48], "custo": [989445.1357903612, 596777.827382005, 9030.118254545454], "itens": [481, 300, 5]}, "top_clientes": [{"nome": "Frigorífico Industrial Vale do Piranga S/A", "itens": 32, "venda": 852491.52, "custo": 566784.0, "liquida": 181703.55456, "lucro_pct": 0.3205869512195122}, {"nome": "Supermercados BH Comércio de Alimentos S/A", "itens": 127, "venda": 831170.2, "custo": 548120.6352744105, "liquida": 181646.8003255895, "lucro_pct": 0.3313993099979716}, {"nome": "Frigorífico Vale do Sapucaí Ltda.", "itens": 44, "venda": 317212.1, "custo": 250371.422, "liquida": 28140.801800000016, "lucro_pct": 0.11239622148249817}, {"nome": "ALS Brasil Ltda.", "itens": 82, "venda": 288939.47, "custo": 194516.28508, "liquida": 59172.56958, "lucro_pct": 0.304203679170943}, {"nome": "Organização Verdemar Ltda", "itens": 213, "venda": 265701.27, "custo": 176854.1, "liquida": 56431.61506, "lucro_pct": 0.31908570431785294}, {"nome": "Nutrisantos Alimentação Animal LTDA", "itens": 121, "venda": 237369.93, "custo": 164363.4398516, "liquida": 44047.35868840001, "lucro_pct": 0.26798756906140053}, {"nome": "Base Alimentos Brasil LTDA", "itens": 69, "venda": 200628.14, "custo": 147269.8980780723, "liquida": 28881.608841927693, "lucro_pct": 0.19611345712086162}, {"nome": "Organizações Francap S/A", "itens": 17, "venda": 179293.68, "custo": 113864.4762, "liquida": 43555.37483999999, "lucro_pct": 0.3825194326937938}, {"nome": "Drogaria Wanessa LTDA", "itens": 65, "venda": 169696.98, "custo": 126736.32199999999, "liquida": 22257.62644000001, "lucro_pct": 0.17562152734714848}, {"nome": "PROFARMA DISTRIBUIDORA DE PRODUTOS FARMACEUTICOS", "itens": 61, "venda": 154675.16, "custo": 96655.15, "liquida": 39149.64048, "lucro_pct": 0.40504453699570075}], "format": {"venda_total": "R$ 10.614.432,23", "custo_ok": "R$ 5.706.027,53", "liquida_ok": "R$ 1.736.068,99", "frete_ok": "R$ 254.285,76", "imposto_ok": "R$ 779.809,66", "lucro_pct": "30,4%", "cobertura": "77,1%", "itens": "5.318", "ok": "4.101", "incompleto": "1.217"}};
+
+    const money = (v) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const teal = '#1f6f78';
+    const copper = '#c45c26';
+    const ink = '#14212b';
+    const soft = '#8aa0b0';
+
+    Chart.defaults.font.family = 'IBM Plex Sans, sans-serif';
+    Chart.defaults.color = '#2a3b49';
+
+    new Chart(document.getElementById('chartCobertura'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Custo ok', 'Custo incompleto'],
+        datasets: [{
+          data: [DATA.kpis.ok, DATA.kpis.incompleto],
+          backgroundColor: [teal, copper],
+          borderWidth: 0,
+          hoverOffset: 6
+        }]
+      },
+      options: {
+        cutout: '68%',
+        plugins: {
+          legend: { position: 'bottom' },
+          title: { display: true, text: 'Status do custo', font: { family: 'Sora', size: 14 } }
+        },
+        animation: { animateRotate: true, duration: 1100 }
+      }
+    });
+
+    new Chart(document.getElementById('chartPendencias'), {
+      type: 'bar',
+      data: {
+        labels: DATA.pendencias.labels,
+        datasets: [{
+          label: 'Itens',
+          data: DATA.pendencias.qtd,
+          backgroundColor: 'rgba(196,92,38,0.85)',
+          borderRadius: 8,
+          maxBarThickness: 28
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        plugins: {
+          legend: { display: false },
+          title: { display: true, text: 'Pendências', font: { family: 'Sora', size: 14 } }
+        },
+        scales: {
+          x: { grid: { color: 'rgba(20,33,43,0.06)' }, ticks: { precision: 0 } },
+          y: { grid: { display: false } }
+        },
+        animation: { duration: 1000 }
+      }
+    });
+
+    new Chart(document.getElementById('chartComposicao'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Custo', 'Frete 3%', 'Imposto 9,2%', 'Venda líquida'],
+        datasets: [{
+          data: [DATA.kpis.custo_ok, DATA.kpis.frete_ok, DATA.kpis.imposto_ok, DATA.kpis.liquida_ok],
+          backgroundColor: ['#234a57', '#3aa0ab', '#c45c26', '#1f7a4c'],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        cutout: '62%',
+        plugins: {
+          legend: { position: 'bottom' },
+          title: { display: true, text: 'Composição da venda (itens ok)', font: { family: 'Sora', size: 14 } },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.label}: ${money(ctx.raw)}`
+            }
+          }
+        }
+      }
+    });
+
+    new Chart(document.getElementById('chartSegmento'), {
+      type: 'bar',
+      data: {
+        labels: DATA.segmentos.labels,
+        datasets: [
+          { label: 'Venda', data: DATA.segmentos.venda, backgroundColor: teal, borderRadius: 6 },
+          { label: 'Custo', data: DATA.segmentos.custo, backgroundColor: '#234a57', borderRadius: 6 },
+          { label: 'Venda líquida', data: DATA.segmentos.liquida, backgroundColor: copper, borderRadius: 6 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${money(c.raw)}` } }
+        },
+        scales: {
+          x: { grid: { display: false } },
+          y: {
+            grid: { color: 'rgba(20,33,43,0.06)' },
+            ticks: { callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }
+          }
+        },
+        animation: { duration: 1200 }
+      }
+    });
+
+    new Chart(document.getElementById('chartMensal'), {
+      type: 'line',
+      data: {
+        labels: DATA.mensal.labels,
+        datasets: [
+          {
+            label: 'Venda',
+            data: DATA.mensal.venda,
+            borderColor: teal,
+            backgroundColor: 'rgba(31,111,120,0.12)',
+            fill: true,
+            tension: 0.35,
+            pointRadius: 2
+          },
+          {
+            label: 'Custo',
+            data: DATA.mensal.custo,
+            borderColor: ink,
+            backgroundColor: 'transparent',
+            tension: 0.35,
+            pointRadius: 2
+          },
+          {
+            label: 'Venda líquida',
+            data: DATA.mensal.liquida,
+            borderColor: copper,
+            backgroundColor: 'transparent',
+            tension: 0.35,
+            pointRadius: 2
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top' },
+          tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${money(c.raw)}` } }
+        },
+        scales: {
+          x: { grid: { display: false } },
+          y: {
+            grid: { color: 'rgba(20,33,43,0.06)' },
+            ticks: { callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }
+          }
+        },
+        animation: { duration: 1300 }
+      }
+    });
+
+    new Chart(document.getElementById('chartUF'), {
+      type: 'bar',
+      data: {
+        labels: DATA.uf.labels,
+        datasets: [{
+          data: DATA.uf.venda,
+          backgroundColor: 'rgba(31,111,120,0.85)',
+          borderRadius: 8,
+          maxBarThickness: 36
+        }]
+      },
+      options: {
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: (c) => money(c.raw) } }
+        },
+        scales: {
+          x: { grid: { display: false } },
+          y: {
+            grid: { color: 'rgba(20,33,43,0.06)' },
+            ticks: { callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }
+          }
+        }
+      }
+    });
+
+    new Chart(document.getElementById('chartMaterial'), {
+      type: 'doughnut',
+      data: {
+        labels: DATA.materiais.labels,
+        datasets: [{
+          data: DATA.materiais.venda,
+          backgroundColor: ['#1f6f78', '#c45c26', '#234a57'],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        cutout: '60%',
+        plugins: {
+          legend: { position: 'bottom' },
+          tooltip: { callbacks: { label: (c) => `${c.label}: ${money(c.raw)}` } }
+        }
+      }
+    });
+  </script>
+</body>
+</html>
