@@ -69,6 +69,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Sora:wght@500;600;700&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
   <style>
     :root {{
       --ink: #14212b;
@@ -773,6 +774,47 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       refresh();
     }}
 
+    function moneyShort(v) {{
+      if (v == null || Number.isNaN(v)) return '';
+      const sign = v < 0 ? '-' : '';
+      const abs = Math.abs(v);
+      if (abs >= 1000000) {{
+        return sign + 'R$ ' + (abs / 1000000).toLocaleString('pt-BR', {{ maximumFractionDigits: 1 }}) + ' mi';
+      }}
+      if (abs >= 1000) {{
+        return sign + 'R$ ' + (abs / 1000).toLocaleString('pt-BR', {{ maximumFractionDigits: 0 }}) + ' mil';
+      }}
+      return money(v);
+    }}
+
+    function dataLabelsConfig({{ horizontal = false, count = 0 }} = {{}}) {{
+      const dense = !horizontal && count > 14;
+      return {{
+        datalabels: {{
+          color: '#14212b',
+          backgroundColor: 'rgba(255,255,255,0.78)',
+          borderRadius: 4,
+          padding: {{ top: 2, bottom: 2, left: 4, right: 4 }},
+          anchor: 'end',
+          align: horizontal ? 'right' : 'top',
+          offset: 4,
+          clamp: true,
+          clip: false,
+          font: {{
+            family: 'IBM Plex Sans',
+            weight: '600',
+            size: dense ? 9 : 11
+          }},
+          rotation: dense ? -65 : 0,
+          formatter: (value) => moneyShort(value),
+          display: (ctx) => {{
+            const value = ctx.dataset.data[ctx.dataIndex];
+            return value != null && value !== 0;
+          }}
+        }}
+      }};
+    }}
+
     function upsertChart(id, config) {{
       if (state.charts[id]) {{
         state.charts[id].data = config.data;
@@ -790,7 +832,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       const segs = aggregateBy(rows, 'seg', 'v').slice(0, 8);
       const ufs = aggregateBy(rows, 'uf', 'v').slice(0, 8);
 
-      const vendaChart = upsertChart('chartVendaMensal', {{
+      upsertChart('chartVendaMensal', {{
         type: 'bar',
         data: {{
           labels: mensalVenda.labels,
@@ -805,6 +847,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         options: {{
           responsive: true,
           maintainAspectRatio: false,
+          layout: {{ padding: {{ top: 28, right: 8 }} }},
           onClick: (evt, els) => {{
             if (!els.length) return;
             const label = mensalVenda.labels[els[0].index];
@@ -814,11 +857,13 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           }},
           plugins: {{
             legend: {{ display: false }},
-            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }}
+            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }},
+            ...dataLabelsConfig({{ count: mensalVenda.labels.length }})
           }},
           scales: {{
             x: {{ grid: {{ display: false }} }},
             y: {{
+              grace: '12%',
               grid: {{ color: 'rgba(20,33,43,0.06)' }},
               ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
             }}
@@ -841,6 +886,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         options: {{
           responsive: true,
           maintainAspectRatio: false,
+          layout: {{ padding: {{ top: 28, right: 8 }} }},
           onClick: (evt, els) => {{
             if (!els.length) return;
             const label = mensalLucro.labels[els[0].index];
@@ -850,11 +896,13 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           }},
           plugins: {{
             legend: {{ display: false }},
-            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }}
+            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }},
+            ...dataLabelsConfig({{ count: mensalLucro.labels.length }})
           }},
           scales: {{
             x: {{ grid: {{ display: false }} }},
             y: {{
+              grace: '12%',
               grid: {{ color: 'rgba(20,33,43,0.06)' }},
               ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
             }}
@@ -878,6 +926,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           indexAxis: 'y',
           responsive: true,
           maintainAspectRatio: false,
+          layout: {{ padding: {{ right: 56 }} }},
           onClick: (evt, els) => {{
             if (!els.length) return;
             const label = segs[els[0].index][0];
@@ -887,10 +936,12 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           }},
           plugins: {{
             legend: {{ display: false }},
-            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }}
+            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }},
+            ...dataLabelsConfig({{ horizontal: true, count: segs.length }})
           }},
           scales: {{
             x: {{
+              grace: '15%',
               grid: {{ color: 'rgba(20,33,43,0.06)' }},
               ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
             }},
@@ -913,6 +964,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         options: {{
           responsive: true,
           maintainAspectRatio: false,
+          layout: {{ padding: {{ top: 28, right: 8 }} }},
           onClick: (evt, els) => {{
             if (!els.length) return;
             const label = ufs[els[0].index][0];
@@ -922,11 +974,13 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
           }},
           plugins: {{
             legend: {{ display: false }},
-            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }}
+            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }},
+            ...dataLabelsConfig({{ count: ufs.length }})
           }},
           scales: {{
             x: {{ grid: {{ display: false }} }},
             y: {{
+              grace: '12%',
               grid: {{ color: 'rgba(20,33,43,0.06)' }},
               ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
             }}
@@ -1134,8 +1188,10 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       refresh();
     }}
 
+    Chart.register(ChartDataLabels);
     Chart.defaults.font.family = 'IBM Plex Sans, sans-serif';
     Chart.defaults.color = '#2a3b49';
+    Chart.defaults.set('plugins.datalabels', {{ display: false }});
 
     document.getElementById('btnAplicar').addEventListener('click', () => {{ state.page = 0; refresh(); }});
     document.getElementById('btnLimpar').addEventListener('click', clearFilters);
