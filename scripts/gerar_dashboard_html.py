@@ -60,8 +60,28 @@ def build_rows(df: pd.DataFrame) -> list[dict]:
     return rows
 
 
-def render_html(rows: list[dict], periodo_label: str) -> str:
+def build_despesa_rows(df: pd.DataFrame) -> list[dict]:
+    rows = []
+    for _, r in df.iterrows():
+        rows.append(
+            {
+                "id": int(r.get("id")) if pd.notna(r.get("id")) else None,
+                "f": None if pd.isna(r.get("Fornecedor")) else str(r.get("Fornecedor"))[:70],
+                "h": None if pd.isna(r.get("Histórico")) else str(r.get("Histórico"))[:80],
+                "d": None if pd.isna(r.get("Liquidação")) else str(r.get("Liquidação"))[:10],
+                "m": None if pd.isna(r.get("Competência")) else str(r.get("Competência"))[:7],
+                "st": None if pd.isna(r.get("Situação")) else str(r.get("Situação")),
+                "v": None if pd.isna(r.get("Valor")) else round(float(r.get("Valor")), 2),
+                "cat": None if pd.isna(r.get("Categoria")) else str(r.get("Categoria")),
+                "sub": None if pd.isna(r.get("Subcategoria")) else str(r.get("Subcategoria")),
+            }
+        )
+    return rows
+
+
+def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | None = None) -> str:
     data_json = json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
+    desp_json = json.dumps(despesas or [], ensure_ascii=False, separators=(",", ":"))
 
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -118,7 +138,10 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
     .hero p {{ margin: .35rem 0 0; color: rgba(247,250,252,.86); max-width: 60ch; }}
     .period {{ display: inline-flex; margin-top: .75rem; padding: .3rem .65rem; border: 1px solid rgba(255,255,255,.22); border-radius: 999px; font-size: .84rem; }}
 
-    .kpi-grid {{ display: grid; grid-template-columns: repeat(5, 1fr); gap: .7rem; margin-top: 1rem; }}
+    .kpi-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: .7rem; margin-top: 1rem; }}
+    @media (min-width: 900px) {{
+      .kpi-grid {{ grid-template-columns: repeat(6, 1fr); }}
+    }}
     .kpi {{
       background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.14);
       border-radius: 14px; padding: .75rem .85rem;
@@ -297,7 +320,8 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         <div class="kpi"><span>Venda</span><strong id="kpiVenda">—</strong></div>
         <div class="kpi"><span>Custo</span><strong id="kpiCusto">—</strong></div>
         <div class="kpi"><span>Venda líquida</span><strong id="kpiLiq">—</strong></div>
-        <div class="kpi"><span>% Lucro</span><strong id="kpiLucro">—</strong></div>
+        <div class="kpi"><span>Despesas ADM</span><strong id="kpiDesp">—</strong></div>
+        <div class="kpi"><span>Resultado após despesas</span><strong id="kpiResult">—</strong></div>
         <div class="kpi"><span>Itens filtrados</span><strong id="kpiItens">—</strong></div>
       </div>
     </header>
@@ -328,6 +352,15 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
             <div class="check-actions">
               <button type="button" id="btnMesAll">Marcar todos</button>
               <button type="button" id="btnMesNone">Limpar</button>
+            </div>
+          </label>
+        </div>
+        <div class="filter-span-2">
+          <label>Categoria de despesa (pode marcar mais de uma)
+            <div class="check-box" id="fDespCatBox"></div>
+            <div class="check-actions">
+              <button type="button" id="btnDespAll">Marcar todas</button>
+              <button type="button" id="btnDespNone">Limpar</button>
             </div>
           </label>
         </div>
@@ -477,6 +510,49 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
     <section>
       <div class="section-head">
         <div>
+          <h2>Despesas administrativas</h2>
+          <p>Pessoal, pró-labore, aluguel, empréstimos, utilidades e demais despesas do período filtrado.</p>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="panel">
+          <div class="chart-box"><canvas id="chartDespesas"></canvas></div>
+          <p class="click-note">Clique na barra para marcar/desmarcar a categoria.</p>
+        </div>
+        <div class="panel table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Categoria</th>
+                <th>Subcategoria</th>
+                <th>Valor</th>
+                <th>%</th>
+              </tr>
+            </thead>
+            <tbody id="tblDespResumo"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel table-wrap" style="margin-top:.9rem;">
+        <table>
+          <thead>
+            <tr>
+              <th>Mês</th>
+              <th>Fornecedor</th>
+              <th>Histórico</th>
+              <th>Categoria</th>
+              <th>Situação</th>
+              <th>Valor</th>
+            </tr>
+          </thead>
+          <tbody id="tblDespesas"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div>
           <h2>Lucro por item</h2>
           <p id="itensMeta">Detalhe dos itens no filtro atual.</p>
         </div>
@@ -506,11 +582,12 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       </div>
     </section>
 
-    <p class="footer">RibbonTech Brasil · Dashboard HTML interativo gerado a partir do relatório de custo</p>
+    <p class="footer">RibbonTech Brasil · Dashboard HTML interativo gerado a partir do relatório de custo e despesas</p>
   </div>
 
   <script>
     const ROWS = {data_json};
+    const DESPESAS = {desp_json};
     const MANUAL_KEY = 'rbt_manual_costs_v1';
 
     const money = (v) => (v == null || Number.isNaN(v))
@@ -743,9 +820,13 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         document.getElementById('fFim').max = dates[dates.length - 1];
       }}
       const segs = uniqueSorted(usable.map(r => r.seg));
-      const months = uniqueSorted(usable.map(r => ymOf(r.d)).filter(Boolean));
+      const monthsFat = usable.map(r => ymOf(r.d)).filter(Boolean);
+      const monthsDesp = DESPESAS.map(d => d.m).filter(Boolean);
+      const months = uniqueSorted([...monthsFat, ...monthsDesp]);
+      const cats = uniqueSorted(DESPESAS.map(d => d.cat));
       fillCheckboxes('fSegmentoBox', segs, 'seg');
       fillCheckboxes('fMesBox', months, 'mes');
+      fillCheckboxes('fDespCatBox', cats, 'despcat');
       fillSelect('fCliente', uniqueSorted(usable.map(r => r.c)), 'Todos');
       fillSelect('fUF', uniqueSorted(usable.map(r => r.uf)), 'Todas');
       fillSelect('fMaterial', uniqueSorted(usable.map(r => r.mat)), 'Todos');
@@ -764,9 +845,25 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         lucroFaixa: document.getElementById('fLucroFaixa').value || null,
         busca: (document.getElementById('fBusca').value || '').trim().toLowerCase(),
         meses: checkedValues('mes'),
+        despCats: checkedValues('despcat'),
         topN: Number(document.getElementById('fTopN').value || 10),
         pageSize: Number(document.getElementById('fPageSize').value || 50),
       }};
+    }}
+
+    function applyDespesaFilters(filters) {{
+      const f = filters || readFilters();
+      return DESPESAS.filter(d => {{
+        if (f.meses && f.meses.length && !f.meses.includes(d.m)) return false;
+        if (f.despCats && f.despCats.length && !f.despCats.includes(d.cat)) return false;
+        if (f.inicio && d.d && d.d < f.inicio) return false;
+        if (f.fim && d.d && d.d > f.fim) return false;
+        if (f.busca) {{
+          const blob = `${{d.f || ''}} ${{d.h || ''}} ${{d.cat || ''}} ${{d.sub || ''}}`.toLowerCase();
+          if (!blob.includes(f.busca)) return false;
+        }}
+        return true;
+      }});
     }}
 
     function inLucroFaixa(p, faixa) {{
@@ -829,7 +926,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       return [...map.entries()].sort((a,b) => b[1] - a[1]);
     }}
 
-    function updateKpis(rows) {{
+    function updateKpis(rows, despesas) {{
       let venda = 0, custo = 0, liq = 0, frete = 0, imposto = 0, ok = 0, manual = 0;
       for (const r of rows) {{
         if (r.v != null) venda += r.v;
@@ -840,14 +937,112 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
         if (r.st === 'ok') ok += 1;
         if (r.st === 'manual') manual += 1;
       }}
-      const lucro = custo > 0 ? liq / custo : null;
+      let desp = 0;
+      for (const d of despesas) {{
+        if (d.v != null) desp += d.v;
+      }}
+      const resultado = liq - desp;
       document.getElementById('kpiVenda').textContent = money(venda);
       document.getElementById('kpiCusto').textContent = money(custo);
       document.getElementById('kpiLiq').textContent = money(liq);
-      document.getElementById('kpiLucro').textContent = pct(lucro);
+      document.getElementById('kpiDesp').textContent = money(desp);
+      const elRes = document.getElementById('kpiResult');
+      elRes.textContent = money(resultado);
+      elRes.style.color = resultado < 0 ? '#ffd0d0' : '#ffffff';
       document.getElementById('kpiItens').textContent =
         rows.length.toLocaleString('pt-BR') +
-        ` (${{ok.toLocaleString('pt-BR')}} ok · ${{manual.toLocaleString('pt-BR')}} manual)`;
+        ` (${{ok.toLocaleString('pt-BR')}} ok · ${{despesas.length}} desp.)`;
+    }}
+
+    function renderDespesas(despesas, filters) {{
+      const byCat = new Map();
+      let total = 0;
+      for (const d of despesas) {{
+        const k = d.cat || 'Outros';
+        byCat.set(k, (byCat.get(k) || 0) + (d.v || 0));
+        total += (d.v || 0);
+      }}
+      const ranked = [...byCat.entries()].sort((a,b) => b[1] - a[1]);
+      const labels = ranked.length ? ranked.map(x => x[0]) : ['Sem despesas'];
+      const values = ranked.length ? ranked.map(x => x[1]) : [0];
+
+      upsertChart('chartDespesas', {{
+        type: 'bar',
+        data: {{
+          labels,
+          datasets: [{{
+            data: values,
+            backgroundColor: labels.map(x => (filters.despCats || []).includes(x) ? '#c45c26' : 'rgba(31,111,120,0.88)'),
+            borderRadius: 7,
+            maxBarThickness: 34
+          }}]
+        }},
+        options: {{
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          layout: {{ padding: {{ right: 56 }} }},
+          onClick: (evt, els) => {{
+            if (!els.length || !ranked.length) return;
+            toggleCheckValue('despcat', ranked[els[0].index][0]);
+          }},
+          plugins: {{
+            legend: {{ display: false }},
+            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }},
+            ...dataLabelsConfig({{ horizontal: true, count: labels.length }})
+          }},
+          scales: {{
+            x: {{
+              beginAtZero: true,
+              grace: '12%',
+              grid: {{ color: 'rgba(20,33,43,0.06)' }},
+              ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
+            }},
+            y: {{ grid: {{ display: false }} }}
+          }}
+        }}
+      }});
+
+      const tbResumo = document.getElementById('tblDespResumo');
+      // detalhe por categoria + subcategoria
+      const bySub = new Map();
+      for (const d of despesas) {{
+        const key = `${{d.cat || 'Outros'}}||${{d.sub || ''}}`;
+        bySub.set(key, (bySub.get(key) || 0) + (d.v || 0));
+      }}
+      const subRanked = [...bySub.entries()]
+        .map(([k, v]) => {{
+          const [cat, sub] = k.split('||');
+          return {{ cat, sub, v }};
+        }})
+        .sort((a,b) => b.v - a.v);
+
+      tbResumo.innerHTML = subRanked.map(r => `
+        <tr>
+          <td>${{r.cat}}</td>
+          <td>${{r.sub || '—'}}</td>
+          <td>${{money(r.v)}}</td>
+          <td>${{total ? pct(r.v / total) : '—'}}</td>
+        </tr>
+      `).join('') || `<tr><td colspan="4">Nenhuma despesa no filtro atual.</td></tr>`;
+
+      const tb = document.getElementById('tblDespesas');
+      const detalhe = [...despesas].sort((a,b) => {{
+        const ma = a.m || '';
+        const mb = b.m || '';
+        if (ma !== mb) return mb.localeCompare(ma);
+        return (b.v || 0) - (a.v || 0);
+      }});
+      tb.innerHTML = detalhe.map(d => `
+        <tr>
+          <td>${{d.m || '—'}}</td>
+          <td>${{d.f || '—'}}</td>
+          <td>${{d.h || '—'}}</td>
+          <td>${{d.cat || '—'}}</td>
+          <td>${{d.st || '—'}}</td>
+          <td>${{money(d.v)}}</td>
+        </tr>
+      `).join('') || `<tr><td colspan="6">Nenhuma despesa no filtro atual.</td></tr>`;
     }}
 
     function statusLabel(st) {{
@@ -1242,6 +1437,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       if (filters.material) chips.push(`Material: ${{filters.material}}`);
       if (filters.status) chips.push(`Status: ${{filters.status}}`);
       if (filters.meses && filters.meses.length) chips.push(`Mês: ${{filters.meses.join(', ')}}`);
+      if (filters.despCats && filters.despCats.length) chips.push(`Despesa: ${{filters.despCats.join(', ')}}`);
       if (filters.busca) chips.push(`Busca: ${{filters.busca}}`);
       if (filters.lucroFaixa) chips.push(`Lucro: ${{filters.lucroFaixa}}`);
       chips.push('Ativo excluído');
@@ -1259,8 +1455,10 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       const filters = readFilters();
       if (filters.cliente) state.selectedCliente = filters.cliente;
       const rows = applyFilters(filters);
-      updateKpis(rows);
+      const despesas = applyDespesaFilters(filters);
+      updateKpis(rows, despesas);
       renderCharts(rows, filters);
+      renderDespesas(despesas, filters);
       renderClientes(rows, filters);
       renderItens(rows, filters);
       updateChips(filters);
@@ -1276,7 +1474,7 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
       document.getElementById('fCliente').value = '';
       document.getElementById('fUF').value = '';
       document.getElementById('fMaterial').value = '';
-      document.querySelectorAll('input[name="seg"], input[name="mes"]').forEach(i => {{ i.checked = false; }});
+      document.querySelectorAll('input[name="seg"], input[name="mes"], input[name="despcat"]').forEach(i => {{ i.checked = false; }});
       state.selectedCliente = null;
       state.page = 0;
       refresh();
@@ -1385,6 +1583,8 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
     document.getElementById('btnSegNone').addEventListener('click', () => setAllChecks('seg', false));
     document.getElementById('btnMesAll').addEventListener('click', () => setAllChecks('mes', true));
     document.getElementById('btnMesNone').addEventListener('click', () => setAllChecks('mes', false));
+    document.getElementById('btnDespAll').addEventListener('click', () => setAllChecks('despcat', true));
+    document.getElementById('btnDespNone').addEventListener('click', () => setAllChecks('despcat', false));
 
     initFilters();
     refresh();
@@ -1394,9 +1594,36 @@ def render_html(rows: list[dict], periodo_label: str) -> str:
 """
 
 
+def load_despesas(path: Path | None = None) -> list[dict]:
+    candidates = []
+    if path:
+        candidates.append(Path(path))
+    candidates.extend(
+        [
+            Path("Despesas_RBT_Normalizadas.xlsx"),
+            Path("Despesas_RBT.xlsx"),
+        ]
+    )
+    for p in candidates:
+        if not p.exists():
+            continue
+        try:
+            if p.name.endswith("Normalizadas.xlsx"):
+                df = pd.read_excel(p, sheet_name="Despesas")
+            else:
+                from processar_despesas import processar
+
+                df = processar(p)
+            return build_despesa_rows(df)
+        except Exception as exc:
+            print(f"Aviso ao ler despesas ({p}): {exc}")
+    return []
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Gera dashboard HTML interativo")
     parser.add_argument("--input", default="Relatorio_Custo_Faturamento_RBT.xlsx")
+    parser.add_argument("--despesas", default="Despesas_RBT_Normalizadas.xlsx")
     parser.add_argument("--output", default="Dashboard_Custo_Faturamento_RBT.html")
     args = parser.parse_args()
 
@@ -1408,11 +1635,15 @@ def main() -> None:
         periodo = "Período não disponível"
 
     rows = build_rows(df)
-    html = render_html(rows, periodo)
+    despesas = load_despesas(Path(args.despesas))
+    html = render_html(rows, periodo, despesas)
     out = Path(args.output)
     out.write_text(html, encoding="utf-8")
     print(f"Dashboard gerado: {out.resolve()}")
-    print(f"Linhas embutidas: {len(rows)} | tamanho: {out.stat().st_size / 1024:.1f} KB")
+    print(
+        f"Linhas embutidas: {len(rows)} | despesas: {len(despesas)} | "
+        f"tamanho: {out.stat().st_size / 1024:.1f} KB"
+    )
 
 
 if __name__ == "__main__":
