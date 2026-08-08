@@ -479,7 +479,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         <div class="section-head">
           <div>
             <h2>Faturamento por segmento</h2>
-            <p>Clique no segmento para filtrar.</p>
+            <p>Valor e % da venda. Clique no segmento para filtrar.</p>
           </div>
         </div>
         <div class="panel">
@@ -1194,6 +1194,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       const mensalVenda = aggregateMonth(rows, 'v');
       const mensalLucro = aggregateMonth(rows, 'l');
       const segs = aggregateBy(rows, 'seg', 'v').slice(0, 8);
+      const segsTotal = rows.reduce((acc, r) => acc + (r.v || 0), 0);
       const ufs = aggregateBy(rows, 'uf', 'v').slice(0, 8);
 
       upsertChart('chartVendaMensal', {{
@@ -1270,6 +1271,13 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         }}
       }});
 
+      const segLabelsCfg = dataLabelsConfig({{ horizontal: true, count: segs.length }});
+      segLabelsCfg.datalabels.formatter = (value) => {{
+        const share = segsTotal > 0 ? pct(value / segsTotal) : '—';
+        return moneyShort(value) + ' (' + share + ')';
+      }};
+      segLabelsCfg.datalabels.padding = {{ top: 2, bottom: 2, left: 5, right: 5 }};
+
       upsertChart('chartSegmento', {{
         type: 'bar',
         data: {{
@@ -1286,19 +1294,26 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           indexAxis: 'y',
           responsive: true,
           maintainAspectRatio: false,
-          layout: {{ padding: {{ right: 56 }} }},
+          layout: {{ padding: {{ right: 88 }} }},
           onClick: (evt, els) => {{
             if (!els.length) return;
             toggleCheckValue('seg', segs[els[0].index][0]);
           }},
           plugins: {{
             legend: {{ display: false }},
-            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }},
-            ...dataLabelsConfig({{ horizontal: true, count: segs.length }})
+            tooltip: {{
+              callbacks: {{
+                label: (c) => {{
+                  const share = segsTotal > 0 ? pct(c.raw / segsTotal) : '—';
+                  return money(c.raw) + ' (' + share + ' da venda)';
+                }}
+              }}
+            }},
+            ...segLabelsCfg
           }},
           scales: {{
             x: {{
-              grace: '15%',
+              grace: '22%',
               grid: {{ color: 'rgba(20,33,43,0.06)' }},
               ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
             }},
