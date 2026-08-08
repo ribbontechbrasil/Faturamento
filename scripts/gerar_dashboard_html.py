@@ -247,6 +247,44 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       font: 600 0.72rem "IBM Plex Sans", sans-serif; cursor: pointer;
       background: rgba(31,111,120,.12); color: var(--teal-deep);
     }}
+    .faixa-bar {{
+      display: flex; flex-wrap: wrap; gap: .45rem; align-items: center;
+      margin: 0 0 .75rem;
+    }}
+    .faixa-bar .faixa-label {{
+      font-size: .82rem; font-weight: 600; color: var(--ink-soft); margin-right: .15rem;
+    }}
+    .faixa-bar button {{
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: .4rem .75rem;
+      font: 600 0.84rem "IBM Plex Sans", sans-serif;
+      cursor: pointer;
+      background: rgba(255,255,255,.72);
+      color: var(--ink);
+      transition: background .15s ease, border-color .15s ease, color .15s ease;
+    }}
+    .faixa-bar button:hover {{
+      border-color: rgba(31,111,120,.45);
+      background: rgba(31,111,120,.08);
+    }}
+    .faixa-bar button.active {{
+      background: rgba(31,111,120,.92);
+      border-color: rgba(31,111,120,.92);
+      color: #fff;
+    }}
+    .faixa-bar button.active[data-faixa="lt10"] {{
+      background: rgba(161,40,40,.9);
+      border-color: rgba(161,40,40,.9);
+    }}
+    .faixa-bar button.active[data-faixa="11-30"] {{
+      background: rgba(196,92,38,.92);
+      border-color: rgba(196,92,38,.92);
+    }}
+    .faixa-bar button.active[data-faixa="gt30"] {{
+      background: rgba(46,125,50,.92);
+      border-color: rgba(46,125,50,.92);
+    }}
     .btn-mini.danger {{ background: rgba(161,40,40,.12); color: #a12828; }}
     .status-pill {{
       display: inline-flex; padding: .15rem .45rem; border-radius: 999px;
@@ -395,10 +433,9 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         <label>Faixa de % lucro
           <select id="fLucroFaixa">
             <option value="">Todas</option>
-            <option value="neg">Prejuízo (&lt; 0%)</option>
-            <option value="0-20">0% a 20%</option>
-            <option value="20-50">20% a 50%</option>
-            <option value="50+">Acima de 50%</option>
+            <option value="lt10">Abaixo de 10%</option>
+            <option value="11-30">11% a 30%</option>
+            <option value="gt30">Acima de 30%</option>
             <option value="na">Sem % (incompleto)</option>
           </select>
         </label>
@@ -576,6 +613,13 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           <button class="btn-ghost" id="btnPrev" type="button">Anterior</button>
           <button class="btn-ghost" id="btnNext" type="button">Próxima</button>
         </div>
+      </div>
+      <div class="faixa-bar" id="faixaLucroBar" role="group" aria-label="Faixas de lucro por item">
+        <span class="faixa-label">Faixa de lucro:</span>
+        <button type="button" data-faixa="" class="active">Todas</button>
+        <button type="button" data-faixa="lt10">Abaixo de 10%</button>
+        <button type="button" data-faixa="11-30">11% a 30%</button>
+        <button type="button" data-faixa="gt30">Acima de 30%</button>
       </div>
       <div class="panel table-wrap">
         <table>
@@ -917,15 +961,34 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       }});
     }}
 
+    const LUCRO_FAIXA_LABEL = {{
+      '': 'Todas',
+      lt10: 'Abaixo de 10%',
+      '11-30': '11% a 30%',
+      gt30: 'Acima de 30%',
+      na: 'Sem % (incompleto)'
+    }};
+
     function inLucroFaixa(p, faixa) {{
       if (!faixa) return true;
       if (faixa === 'na') return p == null;
       if (p == null) return false;
-      if (faixa === 'neg') return p < 0;
-      if (faixa === '0-20') return p >= 0 && p < 0.20;
-      if (faixa === '20-50') return p >= 0.20 && p < 0.50;
-      if (faixa === '50+') return p >= 0.50;
+      // Abaixo de 10% (inclui prejuízo); 10% entra na faixa intermediária para não ficar sem faixa
+      if (faixa === 'lt10') return p < 0.10;
+      if (faixa === '11-30') return p >= 0.10 && p <= 0.30;
+      if (faixa === 'gt30') return p > 0.30;
       return true;
+    }}
+
+    function syncFaixaButtons(faixa) {{
+      const value = faixa || '';
+      document.querySelectorAll('#faixaLucroBar button[data-faixa]').forEach(btn => {{
+        btn.classList.toggle('active', (btn.getAttribute('data-faixa') || '') === value);
+      }});
+      const sel = document.getElementById('fLucroFaixa');
+      if (sel && sel.value !== value && [...sel.options].some(o => o.value === value)) {{
+        sel.value = value;
+      }}
     }}
 
     function applyFilters(baseFilters) {{
@@ -1526,7 +1589,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       if (filters.meses && filters.meses.length) chips.push(`Mês: ${{filters.meses.join(', ')}}`);
       if (filters.despCats && filters.despCats.length) chips.push(`Despesa: ${{filters.despCats.join(', ')}}`);
       if (filters.busca) chips.push(`Busca: ${{filters.busca}}`);
-      if (filters.lucroFaixa) chips.push(`Lucro: ${{filters.lucroFaixa}}`);
+      if (filters.lucroFaixa) chips.push(`Lucro: ${{LUCRO_FAIXA_LABEL[filters.lucroFaixa] || filters.lucroFaixa}}`);
       chips.push('Ativo excluído');
       const el = document.getElementById('activeChips');
       if (!chips.length) {{
@@ -1548,6 +1611,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       renderDespesas(despesas, filters);
       renderClientes(rows, filters);
       renderItens(rows, filters);
+      syncFaixaButtons(filters.lucroFaixa);
       updateChips(filters);
     }}
 
@@ -1579,6 +1643,14 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
     document.getElementById('btnLimpar').addEventListener('click', clearFilters);
     document.getElementById('btnPrev').addEventListener('click', () => {{ state.page -= 1; refresh(); }});
     document.getElementById('btnNext').addEventListener('click', () => {{ state.page += 1; refresh(); }});
+    document.getElementById('faixaLucroBar').addEventListener('click', (ev) => {{
+      const btn = ev.target.closest('button[data-faixa]');
+      if (!btn) return;
+      const value = btn.getAttribute('data-faixa') || '';
+      document.getElementById('fLucroFaixa').value = value;
+      state.page = 0;
+      refresh();
+    }});
     document.getElementById('btnClearManual').addEventListener('click', () => {{
       if (!Object.keys(state.manualCosts).length) {{
         alert('Não há custos manuais salvos.');
