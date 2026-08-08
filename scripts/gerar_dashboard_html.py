@@ -281,9 +281,14 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       background: rgba(196,92,38,.92);
       border-color: rgba(196,92,38,.92);
     }}
-    .faixa-bar button.active[data-faixa="gt30"] {{
+    .faixa-bar button.active[data-faixa="gt30"],
+    .faixa-bar button.active[data-faixa="gt51"] {{
       background: rgba(46,125,50,.92);
       border-color: rgba(46,125,50,.92);
+    }}
+    .faixa-bar button.active[data-faixa="31-50"] {{
+      background: rgba(31,111,120,.92);
+      border-color: rgba(31,111,120,.92);
     }}
     .btn-mini.danger {{ background: rgba(161,40,40,.12); color: #a12828; }}
     .status-pill {{
@@ -529,9 +534,15 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       <div>
         <div class="section-head">
           <div>
-            <h2>Top clientes</h2>
+            <h2>Lucro por cliente</h2>
             <p>Clique na linha para filtrar por cliente.</p>
           </div>
+        </div>
+        <div class="faixa-bar" id="faixaClienteBar" role="group" aria-label="Faixas de lucro por cliente">
+          <span class="faixa-label">Faixa:</span>
+          <button type="button" data-faixa="" class="active">Todas</button>
+          <button type="button" data-faixa="31-50">31% a 50%</button>
+          <button type="button" data-faixa="gt51">Acima de 51%</button>
         </div>
         <div class="panel table-wrap">
           <table>
@@ -680,6 +691,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       page: 0,
       charts: {{}},
       selectedCliente: null,
+      clienteLucroFaixa: '',
       manualCosts: loadManualCosts(),
     }};
 
@@ -989,6 +1001,27 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       if (sel && sel.value !== value && [...sel.options].some(o => o.value === value)) {{
         sel.value = value;
       }}
+    }}
+
+    const CLIENTE_FAIXA_LABEL = {{
+      '': 'Todas',
+      '31-50': '31% a 50%',
+      gt51: 'Acima de 51%'
+    }};
+
+    function inLucroFaixaCliente(p, faixa) {{
+      if (!faixa) return true;
+      if (p == null) return false;
+      if (faixa === '31-50') return p >= 0.31 && p <= 0.50;
+      if (faixa === 'gt51') return p >= 0.51;
+      return true;
+    }}
+
+    function syncFaixaClienteButtons(faixa) {{
+      const value = faixa || '';
+      document.querySelectorAll('#faixaClienteBar button[data-faixa]').forEach(btn => {{
+        btn.classList.toggle('active', (btn.getAttribute('data-faixa') || '') === value);
+      }});
     }}
 
     function applyFilters(baseFilters) {{
@@ -1439,12 +1472,14 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         if (r.ct != null) cur.custo += r.ct;
         map.set(k, cur);
       }}
+      const faixaCli = state.clienteLucroFaixa || '';
       const ranked = [...map.entries()]
         .map(([nome, v]) => ({{
           nome,
           ...v,
           lucroPct: v.custo > 0 ? v.liq / v.custo : null
         }}))
+        .filter(c => inLucroFaixaCliente(c.lucroPct, faixaCli))
         .sort((a,b) => b.venda - a.venda)
         .slice(0, filters.topN);
 
@@ -1454,9 +1489,11 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           <td>${{c.nome}}</td>
           <td>${{money(c.venda)}}</td>
           <td class="${{c.liq < 0 ? 'neg' : 'pos'}}">${{money(c.liq)}}</td>
-          <td>${{pct(c.lucroPct)}}</td>
+          <td class="${{(c.lucroPct ?? 0) < 0 ? 'neg' : 'pos'}}">${{pct(c.lucroPct)}}</td>
         </tr>
-      `).join('');
+      `).join('') || `<tr><td colspan="4">Nenhum cliente na faixa ${{CLIENTE_FAIXA_LABEL[faixaCli] || 'selecionada'}}.</td></tr>`;
+
+      syncFaixaClienteButtons(faixaCli);
 
       tb.querySelectorAll('tr[data-cliente]').forEach(tr => {{
         tr.addEventListener('click', () => {{
@@ -1589,7 +1626,8 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       if (filters.meses && filters.meses.length) chips.push(`Mês: ${{filters.meses.join(', ')}}`);
       if (filters.despCats && filters.despCats.length) chips.push(`Despesa: ${{filters.despCats.join(', ')}}`);
       if (filters.busca) chips.push(`Busca: ${{filters.busca}}`);
-      if (filters.lucroFaixa) chips.push(`Lucro: ${{LUCRO_FAIXA_LABEL[filters.lucroFaixa] || filters.lucroFaixa}}`);
+      if (filters.lucroFaixa) chips.push(`Lucro item: ${{LUCRO_FAIXA_LABEL[filters.lucroFaixa] || filters.lucroFaixa}}`);
+      if (state.clienteLucroFaixa) chips.push(`Lucro cliente: ${{CLIENTE_FAIXA_LABEL[state.clienteLucroFaixa] || state.clienteLucroFaixa}}`);
       chips.push('Ativo excluído');
       const el = document.getElementById('activeChips');
       if (!chips.length) {{
@@ -1627,6 +1665,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       document.getElementById('fMaterial').value = '';
       document.querySelectorAll('input[name="seg"], input[name="mes"], input[name="despcat"]').forEach(i => {{ i.checked = false; }});
       state.selectedCliente = null;
+      state.clienteLucroFaixa = '';
       state.page = 0;
       refresh();
     }}
@@ -1649,6 +1688,12 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       const value = btn.getAttribute('data-faixa') || '';
       document.getElementById('fLucroFaixa').value = value;
       state.page = 0;
+      refresh();
+    }});
+    document.getElementById('faixaClienteBar').addEventListener('click', (ev) => {{
+      const btn = ev.target.closest('button[data-faixa]');
+      if (!btn) return;
+      state.clienteLucroFaixa = btn.getAttribute('data-faixa') || '';
       refresh();
     }});
     document.getElementById('btnClearManual').addEventListener('click', () => {{
