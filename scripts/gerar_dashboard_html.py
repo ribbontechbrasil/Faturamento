@@ -138,9 +138,16 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
     .hero p {{ margin: .35rem 0 0; color: rgba(247,250,252,.86); max-width: 60ch; }}
     .period {{ display: inline-flex; margin-top: .75rem; padding: .3rem .65rem; border: 1px solid rgba(255,255,255,.22); border-radius: 999px; font-size: .84rem; }}
 
-    .kpi-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: .7rem; margin-top: 1rem; }}
+    .kpi-grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: .7rem; margin-top: 1rem; }}
     @media (min-width: 900px) {{
-      .kpi-grid {{ grid-template-columns: repeat(6, 1fr); }}
+      .kpi-grid {{ grid-template-columns: repeat(4, 1fr); }}
+    }}
+    @media (min-width: 1200px) {{
+      .kpi-grid {{ grid-template-columns: repeat(7, 1fr); }}
+    }}
+    .kpi.kpi-caixa {{
+      background: rgba(255,255,255,.16);
+      border-color: rgba(255,255,255,.28);
     }}
     .kpi {{
       background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.14);
@@ -330,6 +337,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         <div class="kpi"><span>Venda líquida</span><strong id="kpiLiq">—</strong><em id="kpiLiqPct">—</em></div>
         <div class="kpi"><span>Despesas ADM</span><strong id="kpiDesp">—</strong><em id="kpiDespPct">—</em></div>
         <div class="kpi"><span>Resultado após despesas</span><strong id="kpiResult">—</strong><em id="kpiResultPct">—</em></div>
+        <div class="kpi kpi-caixa"><span>Caixa</span><strong id="kpiCaixa">—</strong><em id="kpiCaixaPct">Acumulado desde jul/2026</em></div>
         <div class="kpi"><span>Itens filtrados</span><strong id="kpiItens">—</strong><em id="kpiBasePct">% sobre a venda</em></div>
       </div>
     </header>
@@ -355,7 +363,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           </label>
         </div>
         <div class="filter-span-2">
-          <label>Mês selecionado (pode marcar mais de um)
+          <label>Mês selecionado (mais recentes primeiro)
             <div class="check-box" id="fMesBox"></div>
             <div class="check-actions">
               <button type="button" id="btnMesAll">Marcar todos</button>
@@ -765,6 +773,40 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       return [...new Set(values.filter(Boolean))].sort((a,b) => a.localeCompare(b, 'pt-BR'));
     }}
 
+    function uniqueSortedDesc(values) {{
+      return [...new Set(values.filter(Boolean))].sort((a,b) => b.localeCompare(a, 'pt-BR'));
+    }}
+
+    const CAIXA_INICIO = '2026-07';
+
+    function computeCaixaAcumulado() {{
+      // Caixa da empresa: soma dos resultados após despesas a partir de jul/2026
+      const liqByMonth = new Map();
+      for (const r of baseRows()) {{
+        const m = ymOf(r.d);
+        if (!m || m < CAIXA_INICIO) continue;
+        if (r.l != null) liqByMonth.set(m, (liqByMonth.get(m) || 0) + r.l);
+      }}
+      const despByMonth = new Map();
+      for (const d of DESPESAS) {{
+        const m = d.m;
+        if (!m || m < CAIXA_INICIO) continue;
+        if (d.v != null) despByMonth.set(m, (despByMonth.get(m) || 0) + d.v);
+      }}
+      const months = uniqueSorted([
+        ...liqByMonth.keys(),
+        ...despByMonth.keys()
+      ].filter(m => m >= CAIXA_INICIO));
+      let caixa = 0;
+      const serie = [];
+      for (const m of months) {{
+        const resultadoMes = (liqByMonth.get(m) || 0) - (despByMonth.get(m) || 0);
+        caixa += resultadoMes;
+        serie.push({{ m, resultado: resultadoMes, caixa }});
+      }}
+      return {{ caixa, serie }};
+    }}
+
     function fillSelect(id, values, allLabel) {{
       const el = document.getElementById(id);
       const current = el.value;
@@ -830,7 +872,8 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       const segs = uniqueSorted(usable.map(r => r.seg));
       const monthsFat = usable.map(r => ymOf(r.d)).filter(Boolean);
       const monthsDesp = DESPESAS.map(d => d.m).filter(Boolean);
-      const months = uniqueSorted([...monthsFat, ...monthsDesp]);
+      // Meses mais recentes primeiro na barra de seleção
+      const months = uniqueSortedDesc([...monthsFat, ...monthsDesp]);
       const cats = uniqueSorted(DESPESAS.map(d => d.cat));
       fillCheckboxes('fSegmentoBox', segs, 'seg');
       fillCheckboxes('fMesBox', months, 'mes');
@@ -965,6 +1008,19 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       const elResPct = document.getElementById('kpiResultPct');
       elResPct.textContent = pctOfSales(resultado);
       elResPct.style.color = resultado < 0 ? '#ffd0d0' : 'rgba(247,250,252,.82)';
+
+      const {{ caixa, serie }} = computeCaixaAcumulado();
+      const elCaixa = document.getElementById('kpiCaixa');
+      elCaixa.textContent = money(caixa);
+      elCaixa.style.color = caixa < 0 ? '#ffd0d0' : '#ffffff';
+      const elCaixaPct = document.getElementById('kpiCaixaPct');
+      const last = serie.length ? serie[serie.length - 1] : null;
+      elCaixaPct.textContent = last
+        ? `Desde jul/2026 · até ${{last.m}}`
+        : 'Desde jul/2026';
+      elCaixaPct.style.color = caixa < 0 ? '#ffd0d0' : 'rgba(247,250,252,.82)';
+      state.caixaSerie = serie;
+
       document.getElementById('kpiItens').textContent =
         rows.length.toLocaleString('pt-BR') +
         ` (${{ok.toLocaleString('pt-BR')}} ok · ${{despesas.length}} desp.)`;
