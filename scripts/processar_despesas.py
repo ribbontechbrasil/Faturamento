@@ -55,10 +55,13 @@ def categorizar(fornecedor: str, historico: str) -> tuple[str, str]:
     if "pro-labore" in h or "pro labore" in h or "prolabore" in h:
         return "Pró-labore", "Pró-labore"
 
-    if "visita cliente" in h:
-        return "Visita cliente", "Visita cliente"
+    if "visita cliente" in h or "despesas comerciais" in h or "despesa comercial" in h:
+        return "Visita cliente", "Despesas comerciais"
 
-    if "bdmg" in f or "bdmg" in h:
+    if "bdmg" in f or ("emprest" in h and "bdmg" in f):
+        return "BDMG – Empréstimo", "Empréstimo"
+
+    if "bdmg" in f or (f.strip() == "bdmg"):
         return "BDMG – Empréstimo", "Empréstimo"
 
     if "rosa" in f and "emprest" in h:
@@ -67,10 +70,10 @@ def categorizar(fornecedor: str, historico: str) -> tuple[str, str]:
     if "aluguel" in h:
         return "Aluguel", "Aluguel"
 
-    if "copasa" in f:
+    if "copasa" in f or h in {"agua", "água"} or h.startswith("agua"):
         return "Água", "Copasa"
 
-    if "cemig" in f:
+    if "cemig" in f or "energia" in h or "luz" == h:
         return "Luz", "Cemig"
 
     if "bionexo" in f or "portal de compra" in h:
@@ -78,6 +81,11 @@ def categorizar(fornecedor: str, historico: str) -> tuple[str, str]:
 
     if "bling" in f:
         return "Internet/Sistemas", "Software/ERP"
+
+    if h.strip() == "portal":
+        if "bionexo" in f:
+            return "Portal de compra", "Portal de compra"
+        return "Internet/Sistemas", "Portal/Sistemas"
 
     if "internet" in h or "telecom" in f or "vivo" in f or "claro" in f or "oi " in f:
         return "Internet/Sistemas", "Internet"
@@ -98,14 +106,11 @@ def categorizar(fornecedor: str, historico: str) -> tuple[str, str]:
     if "fgts" in h or "inss" in h or "dctfweb" in h:
         return "Pessoal", "Encargos sociais (INSS/FGTS)"
 
-    if "manutenc" in h or "reparo" in h:
-        return "Manutenção e reparos", "Manutenção"
+    if "manutenc" in h or "reparo" in h or "limpeza" in h or "desinfet" in h:
+        return "Manutenção e reparos", "Manutenção/Limpeza"
 
-    if "desinfet" in h or "limpeza" in h:
-        return "Manutenção e reparos", "Material/Limpeza"
-
-    if "correios" in h or "celular" in h:
-        return "Outros", "Despesas diversas"
+    if "frete" in h or "correios" in h or "celular" in h:
+        return "Outros", "Frete/Diversos"
 
     if is_funcionario(fornecedor):
         if "cesta" in h:
@@ -178,10 +183,14 @@ def processar(path: Path) -> pd.DataFrame:
         elif cl in {"pago", "valor"}:
             colmap[c] = "Pago"
     raw = raw.rename(columns=colmap)
-    required = ["Fornecedor", "Histórico", "Liquidação", "Situação", "Pago"]
+    required = ["Fornecedor", "Histórico", "Pago"]
     missing = [c for c in required if c not in raw.columns]
     if missing:
         raise ValueError(f"Colunas ausentes na planilha de despesas: {missing}")
+    if "Liquidação" not in raw.columns:
+        raw["Liquidação"] = pd.NaT
+    if "Situação" not in raw.columns:
+        raw["Situação"] = ""
 
     rows = []
     for i, r in raw.iterrows():
