@@ -147,7 +147,15 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       border-radius: 14px; padding: .75rem .85rem;
     }}
     .kpi span {{ display: block; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: rgba(247,250,252,.72); margin-bottom: .25rem; }}
-    .kpi strong {{ font-family: Sora, sans-serif; font-size: clamp(1rem, 2vw, 1.35rem); font-weight: 600; }}
+    .kpi strong {{ font-family: Sora, sans-serif; font-size: clamp(1rem, 2vw, 1.35rem); font-weight: 600; display: block; }}
+    .kpi em {{
+      display: block;
+      margin-top: .28rem;
+      font-style: normal;
+      font-size: .82rem;
+      font-weight: 600;
+      color: rgba(247,250,252,.82);
+    }}
 
     .filters {{
       margin-top: 1rem;
@@ -317,12 +325,12 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       <p>Dashboard interativo de faturamento, custo e lucro. Use os filtros ou clique nos gráficos para explorar.</p>
       <div class="period">Base completa: {periodo_label}</div>
       <div class="kpi-grid">
-        <div class="kpi"><span>Venda</span><strong id="kpiVenda">—</strong></div>
-        <div class="kpi"><span>Custo</span><strong id="kpiCusto">—</strong></div>
-        <div class="kpi"><span>Venda líquida</span><strong id="kpiLiq">—</strong></div>
-        <div class="kpi"><span>Despesas ADM</span><strong id="kpiDesp">—</strong></div>
-        <div class="kpi"><span>Resultado após despesas</span><strong id="kpiResult">—</strong></div>
-        <div class="kpi"><span>Itens filtrados</span><strong id="kpiItens">—</strong></div>
+        <div class="kpi"><span>Venda</span><strong id="kpiVenda">—</strong><em id="kpiVendaPct">100%</em></div>
+        <div class="kpi"><span>Custo</span><strong id="kpiCusto">—</strong><em id="kpiCustoPct">—</em></div>
+        <div class="kpi"><span>Venda líquida</span><strong id="kpiLiq">—</strong><em id="kpiLiqPct">—</em></div>
+        <div class="kpi"><span>Despesas ADM</span><strong id="kpiDesp">—</strong><em id="kpiDespPct">—</em></div>
+        <div class="kpi"><span>Resultado após despesas</span><strong id="kpiResult">—</strong><em id="kpiResultPct">—</em></div>
+        <div class="kpi"><span>Itens filtrados</span><strong id="kpiItens">—</strong><em id="kpiBasePct">% sobre a venda</em></div>
       </div>
     </header>
 
@@ -942,13 +950,21 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         if (d.v != null) desp += d.v;
       }}
       const resultado = liq - desp;
+      const pctOfSales = (v) => (venda > 0 ? pct(v / venda) : '—');
       document.getElementById('kpiVenda').textContent = money(venda);
+      document.getElementById('kpiVendaPct').textContent = venda > 0 ? '100% da venda' : '—';
       document.getElementById('kpiCusto').textContent = money(custo);
+      document.getElementById('kpiCustoPct').textContent = pctOfSales(custo);
       document.getElementById('kpiLiq').textContent = money(liq);
+      document.getElementById('kpiLiqPct').textContent = pctOfSales(liq);
       document.getElementById('kpiDesp').textContent = money(desp);
+      document.getElementById('kpiDespPct').textContent = pctOfSales(desp);
       const elRes = document.getElementById('kpiResult');
       elRes.textContent = money(resultado);
       elRes.style.color = resultado < 0 ? '#ffd0d0' : '#ffffff';
+      const elResPct = document.getElementById('kpiResultPct');
+      elResPct.textContent = pctOfSales(resultado);
+      elResPct.style.color = resultado < 0 ? '#ffd0d0' : 'rgba(247,250,252,.82)';
       document.getElementById('kpiItens').textContent =
         rows.length.toLocaleString('pt-BR') +
         ` (${{ok.toLocaleString('pt-BR')}} ok · ${{despesas.length}} desp.)`;
