@@ -91,8 +91,9 @@ def categorizar(fornecedor: str, historico: str) -> tuple[str, str]:
     if "difal antecip" in h or "dival antecip" in h:
         return "Difal Antecipação", "SEF/MG"
 
+    # Simples Nacional já entra no dashboard via imposto sobre a venda (9,2%)
     if "simples nacional" in h:
-        return "Simples Nacional", "Imposto"
+        return "", "EXCLUIR"
 
     if "fgts" in h or "inss" in h or "dctfweb" in h:
         return "Pessoal", "Encargos sociais (INSS/FGTS)"
@@ -202,6 +203,8 @@ def processar(path: Path) -> pd.DataFrame:
             elif "copasa" in _norm(forn):
                 hist = "Água/esgoto"
         cat, sub = categorizar(forn, hist)
+        if sub == "EXCLUIR" or not cat:
+            continue
         liq = pd.to_datetime(r.get("Liquidação"), errors="coerce")
         comp_ref = competencia_mes(liq, str(r.get("Histórico")))
         # Mês do caixa/dashboard: data de liquidação; sem data entra no mês da planilha
