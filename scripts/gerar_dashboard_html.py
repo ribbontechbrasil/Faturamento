@@ -535,7 +535,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         <div class="section-head">
           <div>
             <h2>Lucro por cliente</h2>
-            <p>Clique na linha para filtrar por cliente.</p>
+            <p>Nas faixas, clientes em ordem crescente de % lucro. Clique na linha para filtrar.</p>
           </div>
         </div>
         <div class="faixa-bar" id="faixaClienteBar" role="group" aria-label="Faixas de lucro por cliente">
@@ -1480,7 +1480,18 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           lucroPct: v.custo > 0 ? v.liq / v.custo : null
         }}))
         .filter(c => inLucroFaixaCliente(c.lucroPct, faixaCli))
-        .sort((a,b) => b.venda - a.venda)
+        .sort((a, b) => {{
+          // Com filtro de faixa: ordem crescente de % lucro
+          if (faixaCli) {{
+            const pa = a.lucroPct, pb = b.lucroPct;
+            if (pa == null && pb == null) return a.nome.localeCompare(b.nome, 'pt-BR');
+            if (pa == null) return 1;
+            if (pb == null) return -1;
+            if (pa !== pb) return pa - pb;
+            return b.venda - a.venda;
+          }}
+          return b.venda - a.venda;
+        }})
         .slice(0, filters.topN);
 
       const tb = document.getElementById('tblClientes');
