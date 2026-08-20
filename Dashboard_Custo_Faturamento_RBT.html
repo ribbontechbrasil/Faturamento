@@ -129,6 +129,13 @@
     .section-head { display: flex; justify-content: space-between; gap: 1rem; align-items: end; margin-bottom: .7rem; }
     .section-head h2 { font-family: Sora, sans-serif; font-size: 1.2rem; margin: 0; letter-spacing: -.02em; }
     .section-head p { margin: .2rem 0 0; color: var(--ink-soft); font-size: .92rem; }
+    .mini-title {
+      margin: 0 0 .65rem;
+      font-family: Sora, sans-serif;
+      font-size: .95rem;
+      letter-spacing: -.01em;
+      color: var(--ink);
+    }
     .panel {
       background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
       box-shadow: var(--shadow); padding: 1rem; backdrop-filter: blur(10px);
@@ -496,6 +503,60 @@
     <section>
       <div class="section-head">
         <div>
+          <h2>Custo por rolo de etiqueta</h2>
+          <p>Veja o custo de cada rolo por cliente e NF. Use os botões de tipo para filtrar.</p>
+        </div>
+      </div>
+      <div class="faixa-bar" id="faixaTipoEtiqBar" role="group" aria-label="Tipo de etiqueta">
+        <span class="faixa-label">Tipo:</span>
+        <button type="button" data-tipo="" class="active">Todos</button>
+        <button type="button" data-tipo="Bopp">Bopp</button>
+        <button type="button" data-tipo="Couche">Couche</button>
+        <button type="button" data-tipo="Termico">Térmico</button>
+      </div>
+      <div class="grid-2">
+        <div class="panel table-wrap">
+          <h3 class="mini-title">Média de custo/rolo por cliente</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th>Itens</th>
+                <th>Custo médio/rolo</th>
+                <th>Custo total</th>
+              </tr>
+            </thead>
+            <tbody id="tblCustoRoloCliente"></tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <h3 class="mini-title">Custo médio/rolo por tipo</h3>
+          <div class="chart-box"><canvas id="chartTipoEtiqueta"></canvas></div>
+        </div>
+      </div>
+      <div class="panel table-wrap" style="margin-top:.9rem;">
+        <h3 class="mini-title">Detalhe por cliente e NF</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>NF</th>
+              <th>Tipo</th>
+              <th>Material / descrição</th>
+              <th>Custo/rolo</th>
+              <th>Custo total</th>
+              <th>Venda</th>
+              <th>% Lucro</th>
+            </tr>
+          </thead>
+          <tbody id="tblCustoEtiqueta"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div>
           <h2>Despesas administrativas</h2>
           <p>Pessoal, pró-labore, aluguel, empréstimos, utilidades e demais despesas do período filtrado.</p>
         </div>
@@ -532,60 +593,6 @@
             </tr>
           </thead>
           <tbody id="tblDespesas"></tbody>
-        </table>
-      </div>
-    </section>
-
-    </section>
-
-    <section>
-      <div class="section-head">
-        <div>
-          <h2>Custo por tipo de etiqueta</h2>
-          <p>Custo por unidade de rolo, com NF e cliente. Clique no tipo ou na linha para filtrar.</p>
-        </div>
-      </div>
-      <div class="faixa-bar" id="faixaTipoEtiqBar" role="group" aria-label="Tipo de etiqueta">
-        <span class="faixa-label">Tipo:</span>
-        <button type="button" data-tipo="" class="active">Todos</button>
-        <button type="button" data-tipo="Bopp">Bopp</button>
-        <button type="button" data-tipo="Couche">Couche</button>
-        <button type="button" data-tipo="Termico">Térmico</button>
-      </div>
-      <div class="grid-2">
-        <div class="panel">
-          <div class="chart-box"><canvas id="chartTipoEtiqueta"></canvas></div>
-        </div>
-        <div class="panel table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Tipo</th>
-                <th>Rolos c/ custo</th>
-                <th>Custo médio/rolo</th>
-                <th>Custo total</th>
-                <th>%</th>
-              </tr>
-            </thead>
-            <tbody id="tblTipoEtiqueta"></tbody>
-          </table>
-        </div>
-      </div>
-      <div class="panel table-wrap" style="margin-top:.9rem;">
-        <table>
-          <thead>
-            <tr>
-              <th>Tipo</th>
-              <th>NF</th>
-              <th>Cliente</th>
-              <th>Material / descrição</th>
-              <th>Custo/rolo</th>
-              <th>Custo total</th>
-              <th>Venda</th>
-              <th>% Lucro</th>
-            </tr>
-          </thead>
-          <tbody id="tblCustoEtiqueta"></tbody>
         </table>
       </div>
     </section>
@@ -1468,31 +1475,24 @@
         ? etiq.filter(r => tipoEtiquetaOf(r.mat) === tipoFiltro)
         : etiq;
 
+      // Resumo por tipo (gráfico: custo médio/rolo)
       const byTipo = new Map();
       for (const r of filtered) {
         const tipo = tipoEtiquetaOf(r.mat);
-        const cur = byTipo.get(tipo) || {
-          tipo, itens: 0, comRolo: 0, somaRolo: 0, custo: 0, venda: 0
-        };
-        cur.itens += 1;
+        const cur = byTipo.get(tipo) || { tipo, comRolo: 0, somaRolo: 0, custo: 0 };
         if (r.cr != null) {
           cur.comRolo += 1;
           cur.somaRolo += r.cr;
         }
         if (r.ct != null) cur.custo += r.ct;
-        if (r.v != null) cur.venda += r.v;
         byTipo.set(tipo, cur);
       }
-      const ranked = [...byTipo.values()]
-        .map(x => ({
-          ...x,
-          medioRolo: x.comRolo ? x.somaRolo / x.comRolo : null
-        }))
+      const rankedTipo = [...byTipo.values()]
+        .map(x => ({ ...x, medioRolo: x.comRolo ? x.somaRolo / x.comRolo : null }))
         .sort((a, b) => (b.medioRolo || 0) - (a.medioRolo || 0));
-      const totalCusto = ranked.reduce((acc, x) => acc + x.custo, 0);
 
-      const labels = ranked.length ? ranked.map(x => x.tipo) : ['Sem etiquetas'];
-      const values = ranked.length ? ranked.map(x => x.medioRolo || 0) : [0];
+      const labels = rankedTipo.length ? rankedTipo.map(x => x.tipo) : ['Sem etiquetas'];
+      const values = rankedTipo.length ? rankedTipo.map(x => x.medioRolo || 0) : [0];
       const tipoLabelsCfg = dataLabelsConfig({ horizontal: true, count: labels.length });
       tipoLabelsCfg.datalabels.formatter = (value) => money(value);
 
@@ -1540,40 +1540,79 @@
         }
       });
 
-      const tbResumo = document.getElementById('tblTipoEtiqueta');
-      tbResumo.innerHTML = ranked.map(r => `
-        <tr class="item-row ${tipoFiltro === r.tipo ? 'active' : ''}" data-tipo="${r.tipo}">
-          <td>${r.tipo === 'Termico' ? 'Térmico' : r.tipo}</td>
-          <td>${r.comRolo.toLocaleString('pt-BR')}</td>
-          <td>${money(r.medioRolo)}</td>
-          <td>${money(r.custo)}</td>
-          <td>${totalCusto ? pct(r.custo / totalCusto) : '—'}</td>
-        </tr>
-      `).join('') || `<tr><td colspan="5">Nenhuma etiqueta no filtro atual.</td></tr>`;
+      // Resumo por cliente (custo médio/rolo)
+      const byCli = new Map();
+      for (const r of filtered) {
+        const nome = r.c || 'N/D';
+        const cur = byCli.get(nome) || { nome, itens: 0, comRolo: 0, somaRolo: 0, custo: 0 };
+        cur.itens += 1;
+        if (r.cr != null) {
+          cur.comRolo += 1;
+          cur.somaRolo += r.cr;
+        }
+        if (r.ct != null) cur.custo += r.ct;
+        byCli.set(nome, cur);
+      }
+      const rankedCli = [...byCli.values()]
+        .map(x => ({
+          ...x,
+          medioRolo: x.comRolo ? x.somaRolo / x.comRolo : null
+        }))
+        .sort((a, b) => {
+          const ma = a.medioRolo, mb = b.medioRolo;
+          if (ma == null && mb == null) return a.nome.localeCompare(b.nome, 'pt-BR');
+          if (ma == null) return 1;
+          if (mb == null) return -1;
+          if (ma !== mb) return ma - mb; // crescente: mais fácil achar custo/rolo
+          return a.nome.localeCompare(b.nome, 'pt-BR');
+        });
 
-      tbResumo.querySelectorAll('tr[data-tipo]').forEach(tr => {
+      const topN = Number(filters.topN || 10);
+      const cliView = rankedCli.slice(0, Math.max(topN, 20));
+      const tbCli = document.getElementById('tblCustoRoloCliente');
+      tbCli.innerHTML = cliView.map(c => `
+        <tr class="item-row ${filters.cliente === c.nome ? 'active' : ''}" data-cliente="${c.nome.replaceAll('"', '&quot;')}">
+          <td>${c.nome}</td>
+          <td>${c.comRolo.toLocaleString('pt-BR')}</td>
+          <td><strong>${money(c.medioRolo)}</strong></td>
+          <td>${money(c.custo)}</td>
+        </tr>
+      `).join('') || `<tr><td colspan="4">Nenhuma etiqueta com custo/rolo no filtro atual.</td></tr>`;
+
+      if (rankedCli.length > cliView.length) {
+        tbCli.innerHTML += `<tr><td colspan="4">Mostrando ${cliView.length} de ${rankedCli.length} clientes. Aumente o Top N ou filtre.</td></tr>`;
+      }
+
+      tbCli.querySelectorAll('tr[data-cliente]').forEach(tr => {
         tr.addEventListener('click', () => {
-          const tipo = tr.getAttribute('data-tipo') || '';
-          state.tipoEtiqueta = (state.tipoEtiqueta === tipo) ? '' : tipo;
+          const nome = tr.getAttribute('data-cliente');
+          const el = document.getElementById('fCliente');
+          if (el.value === nome) {
+            el.value = '';
+            state.selectedCliente = null;
+          } else {
+            el.value = nome;
+            state.selectedCliente = nome;
+          }
           refresh();
         });
       });
 
+      // Detalhe: Cliente → NF → custo/rolo
       const detalhe = [...filtered].sort((a, b) => {
-        const ta = tipoEtiquetaOf(a.mat);
-        const tb = tipoEtiquetaOf(b.mat);
-        if (ta !== tb) return ta.localeCompare(tb, 'pt-BR');
-        const cra = a.cr == null ? -1 : a.cr;
-        const crb = b.cr == null ? -1 : b.cr;
-        if (cra !== crb) return crb - cra;
         const ca = a.c || '';
         const cb = b.c || '';
         if (ca !== cb) return ca.localeCompare(cb, 'pt-BR');
-        return String(b.n || '').localeCompare(String(a.n || ''), 'pt-BR');
+        const na = String(a.n || '');
+        const nb = String(b.n || '');
+        if (na !== nb) return na.localeCompare(nb, 'pt-BR');
+        const cra = a.cr == null ? Infinity : a.cr;
+        const crb = b.cr == null ? Infinity : b.cr;
+        return cra - crb;
       });
 
       const tb = document.getElementById('tblCustoEtiqueta');
-      const maxRows = 200;
+      const maxRows = 250;
       const pageRows = detalhe.slice(0, maxRows);
       tb.innerHTML = pageRows.map(r => {
         const tipo = tipoEtiquetaOf(r.mat);
@@ -1583,32 +1622,28 @@
           : (r.desc || '—');
         return `
         <tr class="item-row" data-cliente="${(r.c || '').replaceAll('"', '&quot;')}" data-nf="${(r.n || '').replaceAll('"', '&quot;')}" data-tipo="${tipo}">
-          <td>${tipoLabel}</td>
-          <td>${r.n || '—'}</td>
           <td>${r.c || '—'}</td>
+          <td>${r.n || '—'}</td>
+          <td>${tipoLabel}</td>
           <td title="${(r.desc || '').replaceAll('"', '&quot;')}">${matDesc}</td>
           <td><strong>${money(r.cr)}</strong></td>
           <td>${money(r.ct)}</td>
           <td>${money(r.v)}</td>
           <td class="${(r.p ?? 0) < 0 ? 'neg' : 'pos'}">${pct(r.p)}</td>
         </tr>`;
-      }).join('') || `<tr><td colspan="8">Nenhuma etiqueta no filtro atual.</td></tr>`;
+      }).join('') || `<tr><td colspan="8">Nenhuma etiqueta no filtro atual. Marque o segmento de etiqueta ou limpe filtros.</td></tr>`;
 
       if (detalhe.length > maxRows) {
-        tb.innerHTML += `<tr><td colspan="8">Mostrando ${maxRows} de ${detalhe.length.toLocaleString('pt-BR')} itens. Refine pelos filtros.</td></tr>`;
+        tb.innerHTML += `<tr><td colspan="8">Mostrando ${maxRows} de ${detalhe.length.toLocaleString('pt-BR')} itens. Filtre por cliente ou tipo.</td></tr>`;
       }
 
       tb.querySelectorAll('tr[data-cliente]').forEach(tr => {
         tr.addEventListener('click', () => {
           const nome = tr.getAttribute('data-cliente');
-          const tipo = tr.getAttribute('data-tipo');
           if (nome) {
             const el = document.getElementById('fCliente');
             el.value = el.value === nome ? '' : nome;
             state.selectedCliente = el.value || null;
-          }
-          if (tipo && tipo !== 'Sem tipo' && tipo !== 'Outros') {
-            state.tipoEtiqueta = tipo;
           }
           refresh();
         });
