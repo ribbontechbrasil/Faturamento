@@ -25,6 +25,16 @@ def build_rows(df: pd.DataFrame) -> list[dict]:
             if str(seg_val).strip().lower() == "ativo":
                 continue  # segmento Ativo fora da análise
         dt = dts.loc[i]
+        custo_rolo = r.get("Custo_rolo")
+        if custo_rolo is None or (isinstance(custo_rolo, float) and pd.isna(custo_rolo)):
+            base = str(r.get("Base custo unitário") or "")
+            unit = r.get("Custo unitário item")
+            if (
+                unit is not None
+                and not (isinstance(unit, float) and pd.isna(unit))
+                and (base in {"rolo", "planilha_jul26"} or base.startswith("planilha_jul26"))
+            ):
+                custo_rolo = unit
         rows.append(
             {
                 "id": idx,
@@ -39,6 +49,9 @@ def build_rows(df: pd.DataFrame) -> list[dict]:
                 "seg": None if pd.isna(r.get("Segmento")) else str(r.get("Segmento")),
                 "mat": None if pd.isna(r.get("Material")) else str(r.get("Material")),
                 "tub": None if pd.isna(r.get("Tubete")) else str(r.get("Tubete")),
+                "cr": None
+                if custo_rolo is None or (isinstance(custo_rolo, float) and pd.isna(custo_rolo))
+                else round(float(custo_rolo), 4),
                 "v": None
                 if pd.isna(r.get("Valor total venda"))
                 else round(float(r.get("Valor total venda")), 2),
@@ -628,7 +641,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       <div class="section-head">
         <div>
           <h2>Custo por tipo de etiqueta</h2>
-          <p>Resumo por material e detalhe com NF e cliente. Clique no tipo ou na linha para filtrar.</p>
+          <p>Custo por unidade de rolo, com NF e cliente. Clique no tipo ou na linha para filtrar.</p>
         </div>
       </div>
       <div class="faixa-bar" id="faixaTipoEtiqBar" role="group" aria-label="Tipo de etiqueta">
@@ -647,9 +660,9 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
             <thead>
               <tr>
                 <th>Tipo</th>
-                <th>Itens</th>
-                <th>Custo</th>
-                <th>Venda</th>
+                <th>Rolos c/ custo</th>
+                <th>Custo médio/rolo</th>
+                <th>Custo total</th>
                 <th>%</th>
               </tr>
             </thead>
@@ -665,7 +678,8 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
               <th>NF</th>
               <th>Cliente</th>
               <th>Material / descrição</th>
-              <th>Custo</th>
+              <th>Custo/rolo</th>
+              <th>Custo total</th>
               <th>Venda</th>
               <th>% Lucro</th>
             </tr>
@@ -1556,29 +1570,37 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       const byTipo = new Map();
       for (const r of filtered) {{
         const tipo = tipoEtiquetaOf(r.mat);
-        const cur = byTipo.get(tipo) || {{ tipo, itens: 0, custo: 0, venda: 0 }};
+        const cur = byTipo.get(tipo) || {{
+          tipo, itens: 0, comRolo: 0, somaRolo: 0, custo: 0, venda: 0
+        }};
         cur.itens += 1;
+        if (r.cr != null) {{
+          cur.comRolo += 1;
+          cur.somaRolo += r.cr;
+        }}
         if (r.ct != null) cur.custo += r.ct;
         if (r.v != null) cur.venda += r.v;
         byTipo.set(tipo, cur);
       }}
-      const ranked = [...byTipo.values()].sort((a, b) => b.custo - a.custo);
+      const ranked = [...byTipo.values()]
+        .map(x => ({{
+          ...x,
+          medioRolo: x.comRolo ? x.somaRolo / x.comRolo : null
+        }}))
+        .sort((a, b) => (b.medioRolo || 0) - (a.medioRolo || 0));
       const totalCusto = ranked.reduce((acc, x) => acc + x.custo, 0);
 
       const labels = ranked.length ? ranked.map(x => x.tipo) : ['Sem etiquetas'];
-      const values = ranked.length ? ranked.map(x => x.custo) : [0];
+      const values = ranked.length ? ranked.map(x => x.medioRolo || 0) : [0];
       const tipoLabelsCfg = dataLabelsConfig({{ horizontal: true, count: labels.length }});
-      tipoLabelsCfg.datalabels.formatter = (value) => {{
-        const share = totalCusto > 0 ? pct(value / totalCusto) : '—';
-        return moneyShort(value) + ' (' + share + ')';
-      }};
+      tipoLabelsCfg.datalabels.formatter = (value) => money(value);
 
       upsertChart('chartTipoEtiqueta', {{
         type: 'bar',
         data: {{
           labels,
           datasets: [{{
-            label: 'Custo',
+            label: 'Custo médio / rolo',
             data: values,
             backgroundColor: labels.map(t => (tipoFiltro && t === tipoFiltro) ? '#c45c26' : 'rgba(31,111,120,0.88)'),
             borderRadius: 7,
@@ -1589,7 +1611,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           indexAxis: 'y',
           responsive: true,
           maintainAspectRatio: false,
-          layout: {{ padding: {{ right: 88 }} }},
+          layout: {{ padding: {{ right: 72 }} }},
           onClick: (evt, els) => {{
             if (!els.length) return;
             const tipo = labels[els[0].index];
@@ -1601,19 +1623,16 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
             legend: {{ display: false }},
             tooltip: {{
               callbacks: {{
-                label: (c) => {{
-                  const share = totalCusto > 0 ? pct(c.raw / totalCusto) : '—';
-                  return money(c.raw) + ' (' + share + ' do custo)';
-                }}
+                label: (c) => 'Custo médio/rolo: ' + money(c.raw)
               }}
             }},
             ...tipoLabelsCfg
           }},
           scales: {{
             x: {{
-              grace: '22%',
+              grace: '18%',
               grid: {{ color: 'rgba(20,33,43,0.06)' }},
-              ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
+              ticks: {{ callback: (v) => 'R$ ' + Number(v).toLocaleString('pt-BR', {{ maximumFractionDigits: 0 }}) }}
             }},
             y: {{ grid: {{ display: false }} }}
           }}
@@ -1624,9 +1643,9 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       tbResumo.innerHTML = ranked.map(r => `
         <tr class="item-row ${{tipoFiltro === r.tipo ? 'active' : ''}}" data-tipo="${{r.tipo}}">
           <td>${{r.tipo === 'Termico' ? 'Térmico' : r.tipo}}</td>
-          <td>${{r.itens.toLocaleString('pt-BR')}}</td>
+          <td>${{r.comRolo.toLocaleString('pt-BR')}}</td>
+          <td>${{money(r.medioRolo)}}</td>
           <td>${{money(r.custo)}}</td>
-          <td>${{money(r.venda)}}</td>
           <td>${{totalCusto ? pct(r.custo / totalCusto) : '—'}}</td>
         </tr>
       `).join('') || `<tr><td colspan="5">Nenhuma etiqueta no filtro atual.</td></tr>`;
@@ -1643,6 +1662,9 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         const ta = tipoEtiquetaOf(a.mat);
         const tb = tipoEtiquetaOf(b.mat);
         if (ta !== tb) return ta.localeCompare(tb, 'pt-BR');
+        const cra = a.cr == null ? -1 : a.cr;
+        const crb = b.cr == null ? -1 : b.cr;
+        if (cra !== crb) return crb - cra;
         const ca = a.c || '';
         const cb = b.c || '';
         if (ca !== cb) return ca.localeCompare(cb, 'pt-BR');
@@ -1664,14 +1686,15 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           <td>${{r.n || '—'}}</td>
           <td>${{r.c || '—'}}</td>
           <td title="${{(r.desc || '').replaceAll('"', '&quot;')}}">${{matDesc}}</td>
+          <td><strong>${{money(r.cr)}}</strong></td>
           <td>${{money(r.ct)}}</td>
           <td>${{money(r.v)}}</td>
           <td class="${{(r.p ?? 0) < 0 ? 'neg' : 'pos'}}">${{pct(r.p)}}</td>
         </tr>`;
-      }}).join('') || `<tr><td colspan="7">Nenhuma etiqueta no filtro atual.</td></tr>`;
+      }}).join('') || `<tr><td colspan="8">Nenhuma etiqueta no filtro atual.</td></tr>`;
 
       if (detalhe.length > maxRows) {{
-        tb.innerHTML += `<tr><td colspan="7">Mostrando ${{maxRows}} de ${{detalhe.length.toLocaleString('pt-BR')}} itens. Refine pelos filtros.</td></tr>`;
+        tb.innerHTML += `<tr><td colspan="8">Mostrando ${{maxRows}} de ${{detalhe.length.toLocaleString('pt-BR')}} itens. Refine pelos filtros.</td></tr>`;
       }}
 
       tb.querySelectorAll('tr[data-cliente]').forEach(tr => {{
