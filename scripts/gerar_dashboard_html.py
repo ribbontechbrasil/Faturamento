@@ -38,6 +38,7 @@ def build_rows(df: pd.DataFrame) -> list[dict]:
                 else str(r.get("Descrição"))[:100],
                 "seg": None if pd.isna(r.get("Segmento")) else str(r.get("Segmento")),
                 "mat": None if pd.isna(r.get("Material")) else str(r.get("Material")),
+                "tub": None if pd.isna(r.get("Tubete")) else str(r.get("Tubete")),
                 "v": None
                 if pd.isna(r.get("Valor total venda"))
                 else round(float(r.get("Valor total venda")), 2),
@@ -289,6 +290,13 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
     .faixa-bar button.active[data-faixa="31-50"] {{
       background: rgba(31,111,120,.92);
       border-color: rgba(31,111,120,.92);
+    }}
+    .faixa-bar button.active[data-tipo="Bopp"],
+    .faixa-bar button.active[data-tipo="Couche"],
+    .faixa-bar button.active[data-tipo="Termico"] {{
+      background: rgba(31,111,120,.92);
+      border-color: rgba(31,111,120,.92);
+      color: #fff;
     }}
     .btn-mini.danger {{ background: rgba(161,40,40,.12); color: #a12828; }}
     .status-pill {{
@@ -614,6 +622,59 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       </div>
     </section>
 
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div>
+          <h2>Custo por tipo de etiqueta</h2>
+          <p>Resumo por material e detalhe com NF e cliente. Clique no tipo ou na linha para filtrar.</p>
+        </div>
+      </div>
+      <div class="faixa-bar" id="faixaTipoEtiqBar" role="group" aria-label="Tipo de etiqueta">
+        <span class="faixa-label">Tipo:</span>
+        <button type="button" data-tipo="" class="active">Todos</button>
+        <button type="button" data-tipo="Bopp">Bopp</button>
+        <button type="button" data-tipo="Couche">Couche</button>
+        <button type="button" data-tipo="Termico">Térmico</button>
+      </div>
+      <div class="grid-2">
+        <div class="panel">
+          <div class="chart-box"><canvas id="chartTipoEtiqueta"></canvas></div>
+        </div>
+        <div class="panel table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Tipo</th>
+                <th>Itens</th>
+                <th>Custo</th>
+                <th>Venda</th>
+                <th>%</th>
+              </tr>
+            </thead>
+            <tbody id="tblTipoEtiqueta"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel table-wrap" style="margin-top:.9rem;">
+        <table>
+          <thead>
+            <tr>
+              <th>Tipo</th>
+              <th>NF</th>
+              <th>Cliente</th>
+              <th>Material / descrição</th>
+              <th>Custo</th>
+              <th>Venda</th>
+              <th>% Lucro</th>
+            </tr>
+          </thead>
+          <tbody id="tblCustoEtiqueta"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section>
       <div class="section-head">
         <div>
@@ -692,6 +753,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       charts: {{}},
       selectedCliente: null,
       clienteLucroFaixa: '',
+      tipoEtiqueta: '',
       manualCosts: loadManualCosts(),
     }};
 
@@ -1462,6 +1524,175 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         : 'Nenhum mês marcado. Marque os checkboxes ou clique nas colunas para filtrar.';
     }}
 
+    function isEtiquetaSeg(seg) {{
+      const s = String(seg || '').toLowerCase();
+      return s.includes('etiqueta');
+    }}
+
+    function tipoEtiquetaOf(mat) {{
+      const u = String(mat || '').trim().toUpperCase();
+      if (!u) return 'Sem tipo';
+      if (u === 'BOPP' || u.startsWith('BOPP') || u.includes('BOPP')) return 'Bopp';
+      if (u === 'COUCHE' || u.startsWith('COUCHE') || u.includes('COUCHE') || u.includes('COUCHÊ')) return 'Couche';
+      if (u === 'TERMICO' || u.startsWith('TERMICO') || u.includes('TÉRMIC') || u.includes('TERMIC') || u.includes('THERMAL')) return 'Termico';
+      if (u === 'BOPP') return 'Bopp';
+      return 'Outros';
+    }}
+
+    function syncTipoEtiquetaButtons(tipo) {{
+      const value = tipo || '';
+      document.querySelectorAll('#faixaTipoEtiqBar button[data-tipo]').forEach(btn => {{
+        btn.classList.toggle('active', (btn.getAttribute('data-tipo') || '') === value);
+      }});
+    }}
+
+    function renderCustoEtiquetas(rows, filters) {{
+      const tipoFiltro = state.tipoEtiqueta || '';
+      const etiq = rows.filter(r => isEtiquetaSeg(r.seg));
+      const filtered = tipoFiltro
+        ? etiq.filter(r => tipoEtiquetaOf(r.mat) === tipoFiltro)
+        : etiq;
+
+      const byTipo = new Map();
+      for (const r of filtered) {{
+        const tipo = tipoEtiquetaOf(r.mat);
+        const cur = byTipo.get(tipo) || {{ tipo, itens: 0, custo: 0, venda: 0 }};
+        cur.itens += 1;
+        if (r.ct != null) cur.custo += r.ct;
+        if (r.v != null) cur.venda += r.v;
+        byTipo.set(tipo, cur);
+      }}
+      const ranked = [...byTipo.values()].sort((a, b) => b.custo - a.custo);
+      const totalCusto = ranked.reduce((acc, x) => acc + x.custo, 0);
+
+      const labels = ranked.length ? ranked.map(x => x.tipo) : ['Sem etiquetas'];
+      const values = ranked.length ? ranked.map(x => x.custo) : [0];
+      const tipoLabelsCfg = dataLabelsConfig({{ horizontal: true, count: labels.length }});
+      tipoLabelsCfg.datalabels.formatter = (value) => {{
+        const share = totalCusto > 0 ? pct(value / totalCusto) : '—';
+        return moneyShort(value) + ' (' + share + ')';
+      }};
+
+      upsertChart('chartTipoEtiqueta', {{
+        type: 'bar',
+        data: {{
+          labels,
+          datasets: [{{
+            label: 'Custo',
+            data: values,
+            backgroundColor: labels.map(t => (tipoFiltro && t === tipoFiltro) ? '#c45c26' : 'rgba(31,111,120,0.88)'),
+            borderRadius: 7,
+            maxBarThickness: 34
+          }}]
+        }},
+        options: {{
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          layout: {{ padding: {{ right: 88 }} }},
+          onClick: (evt, els) => {{
+            if (!els.length) return;
+            const tipo = labels[els[0].index];
+            if (!tipo || tipo === 'Sem etiquetas') return;
+            state.tipoEtiqueta = (state.tipoEtiqueta === tipo) ? '' : tipo;
+            refresh();
+          }},
+          plugins: {{
+            legend: {{ display: false }},
+            tooltip: {{
+              callbacks: {{
+                label: (c) => {{
+                  const share = totalCusto > 0 ? pct(c.raw / totalCusto) : '—';
+                  return money(c.raw) + ' (' + share + ' do custo)';
+                }}
+              }}
+            }},
+            ...tipoLabelsCfg
+          }},
+          scales: {{
+            x: {{
+              grace: '22%',
+              grid: {{ color: 'rgba(20,33,43,0.06)' }},
+              ticks: {{ callback: (v) => 'R$ ' + (v/1000).toLocaleString('pt-BR') + ' mil' }}
+            }},
+            y: {{ grid: {{ display: false }} }}
+          }}
+        }}
+      }});
+
+      const tbResumo = document.getElementById('tblTipoEtiqueta');
+      tbResumo.innerHTML = ranked.map(r => `
+        <tr class="item-row ${{tipoFiltro === r.tipo ? 'active' : ''}}" data-tipo="${{r.tipo}}">
+          <td>${{r.tipo === 'Termico' ? 'Térmico' : r.tipo}}</td>
+          <td>${{r.itens.toLocaleString('pt-BR')}}</td>
+          <td>${{money(r.custo)}}</td>
+          <td>${{money(r.venda)}}</td>
+          <td>${{totalCusto ? pct(r.custo / totalCusto) : '—'}}</td>
+        </tr>
+      `).join('') || `<tr><td colspan="5">Nenhuma etiqueta no filtro atual.</td></tr>`;
+
+      tbResumo.querySelectorAll('tr[data-tipo]').forEach(tr => {{
+        tr.addEventListener('click', () => {{
+          const tipo = tr.getAttribute('data-tipo') || '';
+          state.tipoEtiqueta = (state.tipoEtiqueta === tipo) ? '' : tipo;
+          refresh();
+        }});
+      }});
+
+      const detalhe = [...filtered].sort((a, b) => {{
+        const ta = tipoEtiquetaOf(a.mat);
+        const tb = tipoEtiquetaOf(b.mat);
+        if (ta !== tb) return ta.localeCompare(tb, 'pt-BR');
+        const ca = a.c || '';
+        const cb = b.c || '';
+        if (ca !== cb) return ca.localeCompare(cb, 'pt-BR');
+        return String(b.n || '').localeCompare(String(a.n || ''), 'pt-BR');
+      }});
+
+      const tb = document.getElementById('tblCustoEtiqueta');
+      const maxRows = 200;
+      const pageRows = detalhe.slice(0, maxRows);
+      tb.innerHTML = pageRows.map(r => {{
+        const tipo = tipoEtiquetaOf(r.mat);
+        const tipoLabel = tipo === 'Termico' ? 'Térmico' : tipo;
+        const matDesc = r.mat && r.mat !== tipo && r.mat !== 'Bopp' && r.mat !== 'Couche' && r.mat !== 'Termico'
+          ? r.mat
+          : (r.desc || '—');
+        return `
+        <tr class="item-row" data-cliente="${{(r.c || '').replaceAll('"', '&quot;')}}" data-nf="${{(r.n || '').replaceAll('"', '&quot;')}}" data-tipo="${{tipo}}">
+          <td>${{tipoLabel}}</td>
+          <td>${{r.n || '—'}}</td>
+          <td>${{r.c || '—'}}</td>
+          <td title="${{(r.desc || '').replaceAll('"', '&quot;')}}">${{matDesc}}</td>
+          <td>${{money(r.ct)}}</td>
+          <td>${{money(r.v)}}</td>
+          <td class="${{(r.p ?? 0) < 0 ? 'neg' : 'pos'}}">${{pct(r.p)}}</td>
+        </tr>`;
+      }}).join('') || `<tr><td colspan="7">Nenhuma etiqueta no filtro atual.</td></tr>`;
+
+      if (detalhe.length > maxRows) {{
+        tb.innerHTML += `<tr><td colspan="7">Mostrando ${{maxRows}} de ${{detalhe.length.toLocaleString('pt-BR')}} itens. Refine pelos filtros.</td></tr>`;
+      }}
+
+      tb.querySelectorAll('tr[data-cliente]').forEach(tr => {{
+        tr.addEventListener('click', () => {{
+          const nome = tr.getAttribute('data-cliente');
+          const tipo = tr.getAttribute('data-tipo');
+          if (nome) {{
+            const el = document.getElementById('fCliente');
+            el.value = el.value === nome ? '' : nome;
+            state.selectedCliente = el.value || null;
+          }}
+          if (tipo && tipo !== 'Sem tipo' && tipo !== 'Outros') {{
+            state.tipoEtiqueta = tipo;
+          }}
+          refresh();
+        }});
+      }});
+
+      syncTipoEtiquetaButtons(tipoFiltro);
+    }}
+
     function renderClientes(rows, filters) {{
       const map = new Map();
       for (const r of rows) {{
@@ -1639,6 +1870,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       if (filters.busca) chips.push(`Busca: ${{filters.busca}}`);
       if (filters.lucroFaixa) chips.push(`Lucro item: ${{LUCRO_FAIXA_LABEL[filters.lucroFaixa] || filters.lucroFaixa}}`);
       if (state.clienteLucroFaixa) chips.push(`Lucro cliente: ${{CLIENTE_FAIXA_LABEL[state.clienteLucroFaixa] || state.clienteLucroFaixa}}`);
+      if (state.tipoEtiqueta) chips.push(`Tipo etiqueta: ${{state.tipoEtiqueta === 'Termico' ? 'Térmico' : state.tipoEtiqueta}}`);
       chips.push('Ativo excluído');
       const el = document.getElementById('activeChips');
       if (!chips.length) {{
@@ -1659,6 +1891,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       renderCharts(rows, filters);
       renderDespesas(despesas, filters);
       renderClientes(rows, filters);
+      renderCustoEtiquetas(rows, filters);
       renderItens(rows, filters);
       syncFaixaButtons(filters.lucroFaixa);
       updateChips(filters);
@@ -1677,6 +1910,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       document.querySelectorAll('input[name="seg"], input[name="mes"], input[name="despcat"]').forEach(i => {{ i.checked = false; }});
       state.selectedCliente = null;
       state.clienteLucroFaixa = '';
+      state.tipoEtiqueta = '';
       state.page = 0;
       refresh();
     }}
@@ -1705,6 +1939,12 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       const btn = ev.target.closest('button[data-faixa]');
       if (!btn) return;
       state.clienteLucroFaixa = btn.getAttribute('data-faixa') || '';
+      refresh();
+    }});
+    document.getElementById('faixaTipoEtiqBar').addEventListener('click', (ev) => {{
+      const btn = ev.target.closest('button[data-tipo]');
+      if (!btn) return;
+      state.tipoEtiqueta = btn.getAttribute('data-tipo') || '';
       refresh();
     }});
     document.getElementById('btnClearManual').addEventListener('click', () => {{
