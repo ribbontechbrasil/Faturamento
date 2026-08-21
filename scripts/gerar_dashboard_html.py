@@ -961,10 +961,10 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       const manual = state.manualCosts[key];
       if (r.st === 'inc' && manual != null && Number.isFinite(manual)) {{
         out.ct = Math.round(manual * 100) / 100;
-        // Preserva frete real da planilha; só usa 3% se não houver frete informado
+        // Frete só da planilha; sem planilha → 0 (nunca 3%)
         const fretePlanilha = r.fb && String(r.fb).startsWith('planilha');
         if (!fretePlanilha || out.f == null) {{
-          out.f = out.v != null ? Math.round(out.v * 0.03 * 100) / 100 : null;
+          out.f = 0;
         }}
         out.i = out.v != null ? Math.round(out.v * 0.092 * 100) / 100 : null;
         if (out.v != null) {{

@@ -122,14 +122,24 @@ def codes_compatible(a: str | None, b: str | None) -> bool:
 
 
 def norm_nf(value) -> str | None:
+    """Normaliza NF preservando prefixo RT (RT001135 ≠ 001135)."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return None
     text = str(value).strip().upper()
     if not text or text == "NAN":
         return None
+    has_rt = text.startswith("RT")
     text = re.sub(r"^RT", "", text)
     text = text.lstrip("0")
-    return text or "0"
+    key = text or "0"
+    return f"RT{key}" if has_rt else key
+
+
+def nf_digits(nf_key: str | None) -> str | None:
+    """Só a parte numérica da NF (sem prefixo RT)."""
+    if not nf_key:
+        return None
+    return re.sub(r"^RT", "", str(nf_key))
 
 
 def format_nf_4digitos(value) -> str | None:
@@ -591,11 +601,16 @@ def match_planilha_etiqueta(planilha: pd.DataFrame, nf_key: str | None, qtd_nf: 
             best_score = score
             best_idx = idx
     if best_idx is None or best_score <= 0:
-        # se só há uma candidata não usada na NF, aceita
+        # só aceita candidata única se quantidade casar (evita 001135 roubar RT001135)
         livres = cands[~cands.index.map(lambda i: bool(planilha.at[i, "_used"]))]
         if len(livres) == 1:
-            best_idx = livres.index[0]
-            best_score = 1
+            only = livres.iloc[0]
+            qtub = only["_qtd_tubetes"]
+            if qtd_nf is not None and qtub is not None and abs(qtd_nf - qtub) < 0.01:
+                best_idx = livres.index[0]
+                best_score = 1
+            else:
+                return None
         else:
             return None
     planilha.at[best_idx, "_used"] = True
@@ -627,11 +642,12 @@ def detalhe_from_planilha(row: pd.Series) -> dict:
     )
     detalhe["tubete_pol"] = row.get("_tub_pol")
     detalhe["fonte"] = "planilha_jul26"
+    # Frete da planilha de etiquetas: em branco = 0 (não usar 3%)
     frete_real = row.get("_frete")
     if frete_real is not None and not (isinstance(frete_real, float) and pd.isna(frete_real)):
         detalhe["frete_real"] = float(frete_real)
     else:
-        detalhe["frete_real"] = None
+        detalhe["frete_real"] = 0.0
     return detalhe
 
 
@@ -681,11 +697,12 @@ def _resolve_nf_typo(planilha: pd.DataFrame, nf_key: str | None) -> str | None:
         return None
     if (planilha["_nf_key"] == nf_key).any():
         return nf_key
+    dig = nf_digits(nf_key)
     # tenta nf com +100 (ex.: 1062 → 1162) — erro comum na planilha jul/26
-    if nf_key.isdigit():
-        alt = str(int(nf_key) + 100)
-        if (planilha["_nf_key"] == alt).any():
-            return alt
+    if dig and dig.isdigit():
+        for alt in (dig, f"RT{dig}", str(int(dig) + 100), f"RT{int(dig) + 100}"):
+            if alt != nf_key and (planilha["_nf_key"] == alt).any():
+                return alt
     return nf_key
 
 
@@ -703,11 +720,26 @@ def match_frete_ribbon(
     if planilha is None or planilha.empty or not nf_key:
         return None
 
-    # NFs da planilha com typo 10xx em vez de 11xx
+    # NFs da planilha com typo 10xx em vez de 11xx; RT vs numérico
     cands = planilha[(planilha["_nf_key"] == nf_key) & (~planilha["_used"])]
-    if cands.empty and nf_key.isdigit():
-        alt = str(int(nf_key) - 100)  # faturamento 1162 ↔ planilha 1062
-        cands = planilha[(planilha["_nf_key"] == alt) & (~planilha["_used"])]
+    if cands.empty:
+        dig = nf_digits(nf_key)
+        alts = []
+        if dig and dig.isdigit():
+            alts = [
+                dig,
+                f"RT{dig}",
+                str(int(dig) - 100),
+                f"RT{int(dig) - 100}",
+                str(int(dig) + 100),
+                f"RT{int(dig) + 100}",
+            ]
+        for alt in alts:
+            if alt == nf_key:
+                continue
+            cands = planilha[(planilha["_nf_key"] == alt) & (~planilha["_used"])]
+            if not cands.empty:
+                break
     if cands.empty:
         return None
 
@@ -1025,11 +1057,17 @@ def calcular_relatorio(
                 pendencias = [p for p in pendencias if p not in {"custo_rs", "codigo", "segmento_sem_regra"}]
 
         completo = custo_unit is not None and qtd is not None and venda is not None
+        # Frete: somente tabelas enviadas (etiquetas / ribbon). Sem match → 0 (nunca 3%).
         usa_frete_real = frete_real is not None
         if usa_frete_real:
             base_frete = base_frete_src or "planilha"
+            frete_valor = float(frete_real)
+        elif venda is not None:
+            base_frete = "0"
+            frete_valor = 0.0
         else:
-            base_frete = "3%" if venda is not None else None
+            base_frete = None
+            frete_valor = None
 
         if completo:
             # Para planilha com qtd de tubetes alinhada à NF: custo_rolo * qtd
@@ -1051,7 +1089,7 @@ def calcular_relatorio(
                 custo_total = float(match_rib["custo_total"])
             else:
                 custo_total = custo_unit * qtd
-            frete = float(frete_real) if usa_frete_real else venda * 0.03
+            frete = frete_valor if frete_valor is not None else 0.0
             imposto = venda * 0.092
             # % lucro = (venda - custo - frete - imposto) / custo  (custo do produto, sem frete)
             venda_liquida = venda - custo_total - frete - imposto
@@ -1060,10 +1098,7 @@ def calcular_relatorio(
             pendencia_txt = ""
         else:
             custo_total = None
-            if usa_frete_real:
-                frete = float(frete_real)
-            else:
-                frete = venda * 0.03 if venda is not None else None
+            frete = frete_valor
             imposto = venda * 0.092 if venda is not None else None
             venda_liquida = None
             perc_lucro = None
@@ -1105,7 +1140,7 @@ def calcular_relatorio(
                 "Custo total item": custo_total,
                 "Frete": frete,
                 "Base frete": base_frete,
-                "Frete (3%)": frete,  # compatibilidade com dashboard antigo
+                "Frete (3%)": frete,  # legado: valor de frete aplicado (não é mais 3%)
                 "Imposto (9,2%)": imposto,
                 "Venda líquida": venda_liquida,
                 "% Lucro": perc_lucro,
