@@ -749,8 +749,13 @@ def match_frete_ribbon(
         venda_ausente = only.get("_venda") is None or (
             isinstance(only.get("_venda"), float) and pd.isna(only.get("_venda"))
         )
-        # qtd+venda (código pode divergir); código+(qtd|venda); qtd em planilha sem venda
-        if not ((q_ok and v_ok) or (c_ok and (q_ok or v_ok)) or (q_ok and venda_ausente)):
+        # qtd+venda (código pode divergir); código+(qtd|venda);
+        # qtd em planilha sem venda SÓ com código (evita etiqueta roubar custo do ribbon)
+        if not (
+            (q_ok and v_ok)
+            or (c_ok and (q_ok or v_ok))
+            or (c_ok and q_ok and venda_ausente)
+        ):
             return None
         best_idx = livres.index[0]
 
@@ -759,6 +764,8 @@ def match_frete_ribbon(
     custo_unit = planilha.at[best_idx, "_custo_unit"]
     custo_total = planilha.at[best_idx, "_custo_total"]
     venda_plan = planilha.at[best_idx, "_venda"]
+    row_ck = planilha.at[best_idx, "_code_key"]
+    code_matched = bool(ck and row_ck and codes_compatible(ck, str(row_ck)))
 
     def _num(v):
         if v is None or (isinstance(v, float) and pd.isna(v)):
@@ -773,6 +780,7 @@ def match_frete_ribbon(
         "custo_total": _num(custo_total),
         "venda": _num(venda_plan),
         "frete_presente": frete_n is not None,
+        "code_matched": code_matched,
     }
 
 
@@ -951,6 +959,9 @@ def calcular_relatorio(
         # Frete/custo/venda da planilha ribbon (inclui kits tipo KITFRANCAP listados nela)
         frete_real = detalhe.get("frete_real")
         base_frete_src = "planilha_etiqueta" if frete_real is not None else None
+        custo_ja_etiqueta = bool(
+            base_custo and str(base_custo).startswith("planilha_jul26")
+        )
         match_rib = match_frete_ribbon(
             planilha_frete,
             norm_nf(r.get("Número")),
@@ -959,37 +970,48 @@ def calcular_relatorio(
             venda,
         )
         if match_rib is not None:
-            # Planilha ribbon prevalece (frete em branco = 0)
-            frete_real = match_rib["frete"]
-            base_frete_src = "planilha_ribbon"
-            if match_rib.get("venda") is not None:
-                venda = float(match_rib["venda"])
-                if qtd is not None and qtd > 0:
-                    valor_unit = venda / qtd
-                if "valor_venda" in pendencias:
-                    pendencias = [p for p in pendencias if p != "valor_venda"]
-            if match_rib.get("custo_total") is not None and (
-                qtd is None
-                or match_rib.get("custo_unit") is None
-                or (
-                    match_rib.get("custo_unit") is not None
-                    and qtd is not None
-                    and abs(match_rib["custo_total"] - match_rib["custo_unit"] * qtd) < 0.05
-                )
-            ):
-                if qtd is not None and qtd > 0:
-                    custo_unit = float(match_rib["custo_total"]) / qtd
+            # Etiqueta já custeada pela planilha jul/26: só cede a kit com código casado
+            # (ex. KITFRANCAP). Evita herdar custo/frete do ribbon irmão na mesma NF.
+            sobrescreve = (not custo_ja_etiqueta) or bool(match_rib.get("code_matched"))
+            if sobrescreve:
+                frete_real = match_rib["frete"]
+                base_frete_src = "planilha_ribbon"
+                if match_rib.get("venda") is not None:
+                    venda = float(match_rib["venda"])
+                    if qtd is not None and qtd > 0:
+                        valor_unit = venda / qtd
+                    if "valor_venda" in pendencias:
+                        pendencias = [p for p in pendencias if p != "valor_venda"]
+                if match_rib.get("custo_total") is not None and (
+                    qtd is None
+                    or match_rib.get("custo_unit") is None
+                    or (
+                        match_rib.get("custo_unit") is not None
+                        and qtd is not None
+                        and abs(match_rib["custo_total"] - match_rib["custo_unit"] * qtd) < 0.05
+                    )
+                ):
+                    if qtd is not None and qtd > 0:
+                        custo_unit = float(match_rib["custo_total"]) / qtd
+                    elif match_rib.get("custo_unit") is not None:
+                        custo_unit = float(match_rib["custo_unit"])
+                    base_custo = "planilha_ribbon"
+                    pendencias = [
+                        p for p in pendencias if p not in {"custo_rs", "codigo", "segmento_sem_regra"}
+                    ]
                 elif match_rib.get("custo_unit") is not None:
                     custo_unit = float(match_rib["custo_unit"])
-                base_custo = "planilha_ribbon"
-                pendencias = [p for p in pendencias if p not in {"custo_rs", "codigo", "segmento_sem_regra"}]
-            elif match_rib.get("custo_unit") is not None:
-                custo_unit = float(match_rib["custo_unit"])
-                base_custo = "planilha_ribbon"
-                pendencias = [p for p in pendencias if p not in {"custo_rs", "codigo", "segmento_sem_regra"}]
+                    base_custo = "planilha_ribbon"
+                    pendencias = [
+                        p for p in pendencias if p not in {"custo_rs", "codigo", "segmento_sem_regra"}
+                    ]
 
         # Planilha dedicada de custos (fonte oficial; também cobre rótulos/kits da lista)
-        if not planilha_custo.empty:
+        # Não sobrescreve etiqueta já calculada pela planilha jul/26 (salvo kit com código).
+        custo_ja_etiqueta = bool(
+            base_custo and str(base_custo).startswith("planilha_jul26")
+        )
+        if not planilha_custo.empty and not custo_ja_etiqueta:
             custo_item = match_custo_item(
                 planilha_custo,
                 norm_nf(r.get("Número")),
