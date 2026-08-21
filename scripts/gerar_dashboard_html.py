@@ -16,6 +16,25 @@ def br_money(v: float | None) -> str:
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def _format_nf_4digitos(value) -> str | None:
+    """Exibe NF só com 4 dígitos (remove prefixos 00 / RT00)."""
+    import re
+
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    text = str(value).strip().upper()
+    if not text or text == "NAN":
+        return None
+    text = re.sub(r"^RT", "", text)
+    digits = re.sub(r"\D", "", text)
+    if not digits:
+        return None
+    digits = digits.lstrip("0") or "0"
+    if len(digits) > 4:
+        digits = digits[-4:]
+    return digits.zfill(4)
+
+
 def build_rows(df: pd.DataFrame) -> list[dict]:
     rows = []
     dts = pd.to_datetime(df["Data de emissão"], dayfirst=True, errors="coerce")
@@ -38,7 +57,11 @@ def build_rows(df: pd.DataFrame) -> list[dict]:
         rows.append(
             {
                 "id": idx,
-                "n": None if pd.isna(r.get("Número")) else str(r.get("Número")),
+                "n": (
+                    None
+                    if pd.isna(r.get("Número"))
+                    else _format_nf_4digitos(r.get("Número"))
+                ),
                 "c": None if pd.isna(r.get("Nome")) else str(r.get("Nome"))[:70],
                 "d": None if pd.isna(dt) else dt.strftime("%Y-%m-%d"),
                 "uf": None if pd.isna(r.get("UF")) else str(r.get("UF")),

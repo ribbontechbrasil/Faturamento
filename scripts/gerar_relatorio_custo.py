@@ -98,6 +98,20 @@ def norm_nf(value) -> str | None:
     return text or "0"
 
 
+def format_nf_4digitos(value) -> str | None:
+    """Exibe NF só com 4 dígitos (remove prefixos 00 / RT00)."""
+    key = norm_nf(value)
+    if key is None:
+        return None
+    digits = re.sub(r"\D", "", str(key))
+    if not digits:
+        return None
+    # Mantém no máximo o valor numérico; preenche à esquerda até 4 dígitos
+    if len(digits) > 4:
+        digits = digits[-4:]
+    return digits.zfill(4)
+
+
 def norm_material_key(text: str) -> str:
     t = re.sub(r"\s+", " ", str(text).strip().upper().replace(",", "."))
     t = t.replace("×", "X")
@@ -727,7 +741,7 @@ def calcular_relatorio(path: Path, etiqueta_cost_sheet: Path | None = None) -> p
 
         rows.append(
             {
-                "Número": r.get("Número"),
+                "Número": format_nf_4digitos(r.get("Número")),
                 "Nome": r.get("Nome"),
                 "Data de emissão": r.get("Data de emissão"),
                 "Situação": r.get("Situação"),
