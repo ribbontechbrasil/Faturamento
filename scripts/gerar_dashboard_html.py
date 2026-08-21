@@ -311,6 +311,11 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       background: rgba(31,111,120,.92);
       border-color: rgba(31,111,120,.92);
     }}
+    .faixa-bar button.active[data-faixa="lte30"] {{
+      background: rgba(161,40,40,.9);
+      border-color: rgba(161,40,40,.9);
+      color: #fff;
+    }}
     .faixa-bar button.active[data-tipo="Bopp"],
     .faixa-bar button.active[data-tipo="Couche"],
     .faixa-bar button.active[data-tipo="Termico"] {{
@@ -569,6 +574,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         <div class="faixa-bar" id="faixaClienteBar" role="group" aria-label="Faixas de lucro por cliente">
           <span class="faixa-label">Faixa:</span>
           <button type="button" data-faixa="" class="active">Todas</button>
+          <button type="button" data-faixa="lte30">Até 30%</button>
           <button type="button" data-faixa="31-50">31% a 50%</button>
           <button type="button" data-faixa="gt51">Acima de 51%</button>
           <button type="button" id="btnLimparCliente" class="btn-ghost" style="margin-left:.35rem;">Ver todos os clientes</button>
@@ -1089,6 +1095,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
 
     const CLIENTE_FAIXA_LABEL = {{
       '': 'Todas',
+      lte30: 'Até 30%',
       '31-50': '31% a 50%',
       gt51: 'Acima de 51%'
     }};
@@ -1096,6 +1103,8 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
     function inLucroFaixaCliente(p, faixa) {{
       if (!faixa) return true;
       if (p == null) return false;
+      // Negativo até 30% (inclusive)
+      if (faixa === 'lte30') return p <= 0.30;
       if (faixa === '31-50') return p >= 0.31 && p <= 0.50;
       if (faixa === 'gt51') return p >= 0.51;
       return true;
