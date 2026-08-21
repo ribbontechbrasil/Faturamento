@@ -762,6 +762,15 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       return `${{d}}/${{m}}/${{y}}`;
     }};
     const ymOf = (iso) => iso ? iso.slice(0, 7) : null;
+    const MESES_PT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const fmtMonthLabel = (ym) => {{
+      if (!ym || ym.length < 7) return ym || '—';
+      const y = ym.slice(0, 4);
+      const m = Number(ym.slice(5, 7));
+      if (!m || m < 1 || m > 12) return ym;
+      return `${{MESES_PT[m - 1]}}/${{y}}`;
+    }};
+    const fmtMonthsList = (meses) => (meses || []).map(fmtMonthLabel).join(', ');
     const parseMoneyInput = (raw) => {{
       if (raw == null) return null;
       let t = String(raw).trim();
@@ -970,7 +979,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       return allRows().filter(r => !isAtivo(r.seg));
     }}
 
-    function fillCheckboxes(boxId, values, name, selectedSet = null) {{
+    function fillCheckboxes(boxId, values, name, selectedSet = null, labelFn = null) {{
       const box = document.getElementById(boxId);
       const prev = selectedSet || new Set(
         [...box.querySelectorAll('input[type=checkbox]:checked')].map(i => i.value)
@@ -978,7 +987,8 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       box.innerHTML = values.map((v, idx) => {{
         const id = `${{name}}_${{idx}}`;
         const checked = prev.size === 0 ? '' : (prev.has(v) ? 'checked' : '');
-        return `<label for="${{id}}"><input type="checkbox" id="${{id}}" name="${{name}}" value="${{v.replaceAll('"', '&quot;')}}" ${{checked}} /> ${{v}}</label>`;
+        const label = labelFn ? labelFn(v) : v;
+        return `<label for="${{id}}"><input type="checkbox" id="${{id}}" name="${{name}}" value="${{String(v).replaceAll('"', '&quot;')}}" ${{checked}} /> ${{label}}</label>`;
       }}).join('');
       box.querySelectorAll('input[type=checkbox]').forEach(inp => {{
         inp.addEventListener('change', () => {{ state.page = 0; refresh(); }});
@@ -1022,7 +1032,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       const months = uniqueSortedDesc([...monthsFat, ...monthsDesp]);
       const cats = uniqueSorted(DESPESAS.map(d => d.cat));
       fillCheckboxes('fSegmentoBox', segs, 'seg');
-      fillCheckboxes('fMesBox', months, 'mes');
+      fillCheckboxes('fMesBox', months, 'mes', null, fmtMonthLabel);
       fillCheckboxes('fDespCatBox', cats, 'despcat');
       fillSelect('fCliente', uniqueSorted(usable.map(r => r.c)), 'Todos');
       fillSelect('fUF', uniqueSorted(usable.map(r => r.uf)), 'Todas');
@@ -1166,7 +1176,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       return [...map.entries()].sort((a,b) => b[1] - a[1]);
     }}
 
-    function updateKpis(rows, despesas) {{
+    function updateKpis(rows, despesas, filters) {{
       let venda = 0, custo = 0, liq = 0, frete = 0, imposto = 0, ok = 0, manual = 0;
       for (const r of rows) {{
         if (r.v != null) venda += r.v;
@@ -1184,7 +1194,9 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       const resultado = liq - desp;
       const pctOfSales = (v) => (venda > 0 ? pct(v / venda) : '—');
       document.getElementById('kpiVenda').textContent = money(venda);
-      document.getElementById('kpiVendaPct').textContent = venda > 0 ? '100% da venda' : '—';
+      const mesesSel = (filters && filters.meses) || [];
+      const mesHint = mesesSel.length ? ` · ${{fmtMonthsList(mesesSel)}}` : '';
+      document.getElementById('kpiVendaPct').textContent = venda > 0 ? `100% da venda${{mesHint}}` : '—';
       document.getElementById('kpiCusto').textContent = money(custo);
       document.getElementById('kpiCustoPct').textContent = pctOfSales(custo);
       document.getElementById('kpiLiq').textContent = money(liq);
@@ -1389,7 +1401,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       upsertChart('chartVendaMensal', {{
         type: 'bar',
         data: {{
-          labels: mensalVenda.labels,
+          labels: mensalVenda.labels.map(fmtMonthLabel),
           datasets: [{{
             label: 'Venda mensal',
             data: mensalVenda.values,
@@ -1408,7 +1420,15 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           }},
           plugins: {{
             legend: {{ display: false }},
-            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }},
+            tooltip: {{
+              callbacks: {{
+                title: (items) => {{
+                  const i = items[0] && items[0].dataIndex;
+                  return i == null ? '' : fmtMonthLabel(mensalVenda.labels[i]);
+                }},
+                label: (c) => 'Venda: ' + money(c.raw)
+              }}
+            }},
             ...dataLabelsConfig({{ count: mensalVenda.labels.length }})
           }},
           scales: {{
@@ -1426,7 +1446,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       upsertChart('chartLucroMensal', {{
         type: 'bar',
         data: {{
-          labels: mensalLucro.labels,
+          labels: mensalLucro.labels.map(fmtMonthLabel),
           datasets: [{{
             label: 'Venda líquida',
             data: mensalLucro.values,
@@ -1445,7 +1465,15 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           }},
           plugins: {{
             legend: {{ display: false }},
-            tooltip: {{ callbacks: {{ label: (c) => money(c.raw) }} }},
+            tooltip: {{
+              callbacks: {{
+                title: (items) => {{
+                  const i = items[0] && items[0].dataIndex;
+                  return i == null ? '' : fmtMonthLabel(mensalLucro.labels[i]);
+                }},
+                label: (c) => money(c.raw)
+              }}
+            }},
             ...dataLabelsConfig({{ count: mensalLucro.labels.length }})
           }},
           scales: {{
@@ -1551,7 +1579,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       }});
 
       document.getElementById('mesNote').textContent = (filters.meses && filters.meses.length)
-        ? `Meses ativos: ${{filters.meses.join(', ')}} (clique no gráfico ou desmarque o checkbox para alterar).`
+        ? `Meses ativos: ${{fmtMonthsList(filters.meses)}} · venda filtrada: ${{money(rows.reduce((a,r) => a + (r.v || 0), 0))}}`
         : 'Nenhum mês marcado. Marque os checkboxes ou clique nas colunas para filtrar.';
     }}
 
@@ -1953,7 +1981,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       if (filters.uf) chips.push(`UF: ${{filters.uf}}`);
       if (filters.material) chips.push(`Material: ${{filters.material}}`);
       if (filters.status) chips.push(`Status: ${{filters.status}}`);
-      if (filters.meses && filters.meses.length) chips.push(`Mês: ${{filters.meses.join(', ')}}`);
+      if (filters.meses && filters.meses.length) chips.push(`Mês: ${{fmtMonthsList(filters.meses)}}`);
       if (filters.despCats && filters.despCats.length) chips.push(`Despesa: ${{filters.despCats.join(', ')}}`);
       if (filters.busca) chips.push(`Busca: ${{filters.busca}}`);
       if (filters.lucroFaixa) chips.push(`Lucro item: ${{LUCRO_FAIXA_LABEL[filters.lucroFaixa] || filters.lucroFaixa}}`);
@@ -1975,7 +2003,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       state.selectedCliente = filters.cliente || null;
       const rows = applyFilters(filters);
       const despesas = applyDespesaFilters(filters);
-      updateKpis(rows, despesas);
+      updateKpis(rows, despesas, filters);
       renderCharts(rows, filters);
       renderDespesas(despesas, filters);
       renderClientes(rows, filters);
