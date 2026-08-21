@@ -101,6 +101,26 @@ def code_key(value) -> str | None:
     return re.sub(r"[^A-Z0-9/]", "", c)
 
 
+def codes_compatible(a: str | None, b: str | None) -> bool:
+    """True se códigos representam o mesmo item (aliases comuns)."""
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if a.replace("/", "") == b.replace("/", ""):
+        return True
+    # P110360108I ↔ P110360108TDW
+    stem_a = re.sub(r"(TDW|I)$", "", a)
+    stem_b = re.sub(r"(TDW|I)$", "", b)
+    if stem_a and stem_a == stem_b:
+        return True
+    # 100200006 ↔ 10020006 (zeros extras)
+    da, db = re.sub(r"\D", "", a), re.sub(r"\D", "", b)
+    if da and db and da.lstrip("0") == db.lstrip("0") and da.lstrip("0"):
+        return True
+    return False
+
+
 def norm_nf(value) -> str | None:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return None
@@ -697,44 +717,42 @@ def match_frete_ribbon(
     for idx, row in cands.iterrows():
         score = 0
         row_ck = row.get("_code_key")
-        if ck and row_ck and ck == row_ck:
+        if ck and row_ck and codes_compatible(ck, str(row_ck)):
             score += 5
-        elif ck and row_ck and ck.replace("/", "") == str(row_ck).replace("/", ""):
-            score += 4
         qtub = row.get("_qtd")
         if qtd is not None and qtub is not None and abs(qtd - float(qtub)) < 0.01:
             score += 3
         vv = row.get("_venda")
         if venda is not None and vv is not None and abs(venda - float(vv)) < 0.05:
             score += 3
+        # qtd da planilha de custo sem coluna venda: aceita só código+qtd
         if score > best_score:
             best_score = score
             best_idx = idx
 
     if best_idx is None or best_score < 8:
-        # Exige código + (qtd ou venda) para evitar colisão RT vs numérica
         livres = cands[~cands["_used"]]
-        if (
-            best_idx is not None
-            and best_score >= 5
-            and ck
-            and len(livres[livres["_code_key"] == ck]) == 1
-            and (
-                (
-                    qtd is not None
-                    and livres.iloc[0].get("_qtd") is not None
-                    and abs(qtd - float(livres.iloc[0]["_qtd"])) < 0.01
-                )
-                or (
-                    venda is not None
-                    and livres.iloc[0].get("_venda") is not None
-                    and abs(venda - float(livres.iloc[0]["_venda"])) < 0.05
-                )
-            )
-        ):
-            best_idx = livres[livres["_code_key"] == ck].index[0]
-        elif best_idx is None or best_score < 8:
+        if len(livres) != 1:
             return None
+        only = livres.iloc[0]
+        q_ok = (
+            qtd is not None
+            and only.get("_qtd") is not None
+            and abs(qtd - float(only["_qtd"])) < 0.01
+        )
+        v_ok = (
+            venda is not None
+            and only.get("_venda") is not None
+            and abs(venda - float(only["_venda"])) < 0.05
+        )
+        c_ok = bool(ck and codes_compatible(ck, str(only.get("_code_key") or "")))
+        venda_ausente = only.get("_venda") is None or (
+            isinstance(only.get("_venda"), float) and pd.isna(only.get("_venda"))
+        )
+        # qtd+venda (código pode divergir); código+(qtd|venda); qtd em planilha sem venda
+        if not ((q_ok and v_ok) or (c_ok and (q_ok or v_ok)) or (q_ok and venda_ausente)):
+            return None
+        best_idx = livres.index[0]
 
     planilha.at[best_idx, "_used"] = True
     frete = planilha.at[best_idx, "_frete"]
@@ -747,11 +765,14 @@ def match_frete_ribbon(
             return None
         return float(v)
 
+    # Frete em branco na planilha = 0 (não cair no 3%)
+    frete_n = _num(frete)
     return {
-        "frete": _num(frete),
+        "frete": 0.0 if frete_n is None else frete_n,
         "custo_unit": _num(custo_unit),
         "custo_total": _num(custo_total),
         "venda": _num(venda_plan),
+        "frete_presente": frete_n is not None,
     }
 
 
@@ -927,51 +948,48 @@ def calcular_relatorio(
         if venda is None:
             pendencias.append("valor_venda")
 
-        # Frete/custo real: etiquetas pela planilha de etiquetas; demais pela planilha ribbon
+        # Frete/custo/venda da planilha ribbon (inclui kits tipo KITFRANCAP listados nela)
         frete_real = detalhe.get("frete_real")
         base_frete_src = "planilha_etiqueta" if frete_real is not None else None
-        match_rib = None
-        if not is_etiqueta:
-            match_rib = match_frete_ribbon(
-                planilha_frete,
-                norm_nf(r.get("Número")),
-                r.get("code"),
-                qtd,
-                venda,
-            )
-            if match_rib is not None:
-                if match_rib.get("frete") is not None:
-                    frete_real = match_rib["frete"]
-                    base_frete_src = "planilha_ribbon"
-                # Venda da planilha (corrige divergências do faturamento, ex. NF 3568)
-                if match_rib.get("venda") is not None:
-                    venda = float(match_rib["venda"])
-                    if qtd is not None and qtd > 0:
-                        valor_unit = venda / qtd
-                    if "valor_venda" in pendencias:
-                        pendencias = [p for p in pendencias if p != "valor_venda"]
-                # Custo da planilha ribbon (pode ser sobrescrito pela planilha de custos)
-                if match_rib.get("custo_total") is not None and (
-                    qtd is None
-                    or match_rib.get("custo_unit") is None
-                    or (
-                        match_rib.get("custo_unit") is not None
-                        and qtd is not None
-                        and abs(match_rib["custo_total"] - match_rib["custo_unit"] * qtd) < 0.05
-                    )
-                ):
-                    if qtd is not None and qtd > 0:
-                        custo_unit = float(match_rib["custo_total"]) / qtd
-                    elif match_rib.get("custo_unit") is not None:
-                        custo_unit = float(match_rib["custo_unit"])
-                    base_custo = "planilha_ribbon"
-                    pendencias = [p for p in pendencias if p not in {"custo_rs", "codigo", "segmento_sem_regra"}]
+        match_rib = match_frete_ribbon(
+            planilha_frete,
+            norm_nf(r.get("Número")),
+            r.get("code"),
+            qtd,
+            venda,
+        )
+        if match_rib is not None:
+            # Planilha ribbon prevalece (frete em branco = 0)
+            frete_real = match_rib["frete"]
+            base_frete_src = "planilha_ribbon"
+            if match_rib.get("venda") is not None:
+                venda = float(match_rib["venda"])
+                if qtd is not None and qtd > 0:
+                    valor_unit = venda / qtd
+                if "valor_venda" in pendencias:
+                    pendencias = [p for p in pendencias if p != "valor_venda"]
+            if match_rib.get("custo_total") is not None and (
+                qtd is None
+                or match_rib.get("custo_unit") is None
+                or (
+                    match_rib.get("custo_unit") is not None
+                    and qtd is not None
+                    and abs(match_rib["custo_total"] - match_rib["custo_unit"] * qtd) < 0.05
+                )
+            ):
+                if qtd is not None and qtd > 0:
+                    custo_unit = float(match_rib["custo_total"]) / qtd
                 elif match_rib.get("custo_unit") is not None:
                     custo_unit = float(match_rib["custo_unit"])
-                    base_custo = "planilha_ribbon"
-                    pendencias = [p for p in pendencias if p not in {"custo_rs", "codigo", "segmento_sem_regra"}]
+                base_custo = "planilha_ribbon"
+                pendencias = [p for p in pendencias if p not in {"custo_rs", "codigo", "segmento_sem_regra"}]
+            elif match_rib.get("custo_unit") is not None:
+                custo_unit = float(match_rib["custo_unit"])
+                base_custo = "planilha_ribbon"
+                pendencias = [p for p in pendencias if p not in {"custo_rs", "codigo", "segmento_sem_regra"}]
 
-            # Planilha dedicada de custos (fonte oficial, exceto etiquetas)
+        # Planilha dedicada de custos (fonte oficial; também cobre rótulos/kits da lista)
+        if not planilha_custo.empty:
             custo_item = match_custo_item(
                 planilha_custo,
                 norm_nf(r.get("Número")),
@@ -999,12 +1017,14 @@ def calcular_relatorio(
                 and detalhe.get("qtd_tubetes") is not None
                 and qtd is not None
                 and abs(qtd - float(detalhe["qtd_tubetes"])) < 0.01
+                and match_rib is None
             ):
                 custo_total = float(detalhe["custo_total_planilha"])
             elif (
-                base_custo == "planilha_ribbon"
+                base_custo in {"planilha_ribbon", "planilha_custo"}
                 and match_rib
                 and match_rib.get("custo_total") is not None
+                and base_custo == "planilha_ribbon"
             ):
                 custo_total = float(match_rib["custo_total"])
             else:
