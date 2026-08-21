@@ -22,9 +22,13 @@ def _format_nf_4digitos(value) -> str | None:
 
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return None
+    if isinstance(value, float) and value == int(value):
+        value = int(value)
     text = str(value).strip().upper()
     if not text or text == "NAN":
         return None
+    if re.fullmatch(r"\d+\.0", text):
+        text = text[:-2]
     text = re.sub(r"^RT", "", text)
     digits = re.sub(r"\D", "", text)
     if not digits:

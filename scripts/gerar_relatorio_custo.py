@@ -58,6 +58,11 @@ STATUS_INCOMPLETO = "custo incompleto"
 
 DEFAULT_ETIQUETA_COST_SHEET = "Planilha_calculo_custo_etiquetas_jul26.xlsx"
 DEFAULT_FRETE_RIBBON_SHEET = "Ribbon_com_frete_real.xlsx"
+DEFAULT_CUSTO_ITENS_SHEET = "Custo_itens_exceto_etiquetas_jul26.xlsx"
+CUSTO_ITENS_SHEET_CANDIDATES = (
+    DEFAULT_CUSTO_ITENS_SHEET,
+    "Custo de itens exceto etiquetas - jul 26.xlsx",
+)
 
 
 def br_to_float(value) -> float | None:
@@ -109,13 +114,19 @@ def norm_nf(value) -> str | None:
 
 def format_nf_4digitos(value) -> str | None:
     """Exibe NF só com 4 dígitos (remove prefixos 00 / RT00)."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    # Evita "3562.0" → dígitos "35620" → "5620"
+    if isinstance(value, float) and value == int(value):
+        value = int(value)
+    elif isinstance(value, str) and re.fullmatch(r"\d+\.0", value.strip()):
+        value = value.strip()[:-2]
     key = norm_nf(value)
     if key is None:
         return None
     digits = re.sub(r"\D", "", str(key))
     if not digits:
         return None
-    # Mantém no máximo o valor numérico; preenche à esquerda até 4 dígitos
     if len(digits) > 4:
         digits = digits[-4:]
     return digits.zfill(4)
@@ -742,10 +753,57 @@ def match_frete_ribbon(
     }
 
 
+def load_planilha_custo_itens(path: Path | None) -> pd.DataFrame:
+    """Planilha de custo unitário real por NF/item (exceto etiquetas)."""
+    if path is None or not path.exists():
+        return pd.DataFrame()
+    df = pd.read_excel(path)
+    df = df.copy()
+    colmap = {}
+    for c in df.columns:
+        cl = str(c).strip().lower()
+        if cl in {"nota", "nf", "número", "numero"}:
+            colmap[c] = "Nota"
+        elif cl in {"item", "código", "codigo"}:
+            colmap[c] = "Item"
+        elif cl.startswith("qtde") or cl in {"qtd", "quantidade"}:
+            colmap[c] = "Qtde."
+        elif "custo unit" in cl:
+            colmap[c] = "Custo Unit."
+    df = df.rename(columns=colmap)
+    if "Nota" not in df.columns or "Custo Unit." not in df.columns:
+        return pd.DataFrame()
+    df["_nf_key"] = df["Nota"].map(norm_nf)
+    df["_code"] = df["Item"].map(norm_code) if "Item" in df.columns else None
+    df["_code_key"] = df["Item"].map(code_key) if "Item" in df.columns else None
+    df["_qtd"] = df["Qtde."].map(br_to_float) if "Qtde." in df.columns else None
+    df["_custo_unit"] = df["Custo Unit."].map(br_to_float)
+    df["_frete"] = None
+    df["_venda"] = None
+    df["_custo_total"] = None
+    df["_used"] = False
+    return df
+
+
+def match_custo_item(
+    planilha: pd.DataFrame,
+    nf_key: str | None,
+    code: str | None,
+    qtd: float | None,
+    venda: float | None = None,
+) -> float | None:
+    """Retorna custo unitário real da planilha de custos (exceto etiquetas)."""
+    matched = match_frete_ribbon(planilha, nf_key, code, qtd, venda)
+    if matched is None:
+        return None
+    return matched.get("custo_unit")
+
+
 def calcular_relatorio(
     path: Path,
     etiqueta_cost_sheet: Path | None = None,
     frete_ribbon_sheet: Path | None = None,
+    custo_itens_sheet: Path | None = None,
 ) -> pd.DataFrame:
     fat = pd.read_excel(path, sheet_name="Faturamento")
     custos = load_custos_ultimo(path)
@@ -762,6 +820,14 @@ def calcular_relatorio(
         candidate_f = path.parent / DEFAULT_FRETE_RIBBON_SHEET
         frete_ribbon_sheet = candidate_f if candidate_f.exists() else None
     planilha_frete = load_planilha_frete_ribbon(frete_ribbon_sheet)
+
+    if custo_itens_sheet is None:
+        for name in CUSTO_ITENS_SHEET_CANDIDATES:
+            candidate_c = path.parent / name
+            if candidate_c.exists():
+                custo_itens_sheet = candidate_c
+                break
+    planilha_custo = load_planilha_custo_itens(custo_itens_sheet)
 
     fat = fat.copy()
     fat["code"] = fat["Código"].map(norm_code)
@@ -875,7 +941,7 @@ def calcular_relatorio(
                 if match_rib.get("frete") is not None:
                     frete_real = match_rib["frete"]
                     base_frete_src = "planilha_ribbon"
-                # Custo real da planilha (ex.: 33,60 em vez de 32,00 do Custos_RS)
+                # Custo da planilha ribbon (pode ser sobrescrito pela planilha de custos)
                 if match_rib.get("custo_total") is not None and (
                     qtd is None
                     or match_rib.get("custo_unit") is None
@@ -890,12 +956,24 @@ def calcular_relatorio(
                     elif match_rib.get("custo_unit") is not None:
                         custo_unit = float(match_rib["custo_unit"])
                     base_custo = "planilha_ribbon"
-                    # remove pendência de custo se havia
                     pendencias = [p for p in pendencias if p not in {"custo_rs", "codigo", "segmento_sem_regra"}]
                 elif match_rib.get("custo_unit") is not None:
                     custo_unit = float(match_rib["custo_unit"])
                     base_custo = "planilha_ribbon"
                     pendencias = [p for p in pendencias if p not in {"custo_rs", "codigo", "segmento_sem_regra"}]
+
+            # Planilha dedicada de custos (fonte oficial, exceto etiquetas)
+            custo_item = match_custo_item(
+                planilha_custo,
+                norm_nf(r.get("Número")),
+                r.get("code"),
+                qtd,
+                venda,
+            )
+            if custo_item is not None:
+                custo_unit = float(custo_item)
+                base_custo = "planilha_custo"
+                pendencias = [p for p in pendencias if p not in {"custo_rs", "codigo", "segmento_sem_regra"}]
 
         completo = custo_unit is not None and qtd is not None and venda is not None
         usa_frete_real = frete_real is not None
@@ -914,8 +992,11 @@ def calcular_relatorio(
                 and abs(qtd - float(detalhe["qtd_tubetes"])) < 0.01
             ):
                 custo_total = float(detalhe["custo_total_planilha"])
-            elif base_custo == "planilha_ribbon" and match_rib and match_rib.get("custo_total") is not None:
-                # Prefer total da planilha quando o item ribbon foi casado
+            elif (
+                base_custo == "planilha_ribbon"
+                and match_rib
+                and match_rib.get("custo_total") is not None
+            ):
                 custo_total = float(match_rib["custo_total"])
             else:
                 custo_total = custo_unit * qtd
@@ -1041,6 +1122,11 @@ def main() -> None:
         default=DEFAULT_FRETE_RIBBON_SHEET,
         help="Planilha de frete real de ribbons e demais itens (exceto etiquetas)",
     )
+    parser.add_argument(
+        "--custo-itens",
+        default=DEFAULT_CUSTO_ITENS_SHEET,
+        help="Planilha de custo unitário real por item/NF (exceto etiquetas)",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -1051,12 +1137,22 @@ def main() -> None:
     frete_path = Path(args.frete_ribbon)
     if not frete_path.exists():
         frete_path = None
+    custo_path = Path(args.custo_itens)
+    if not custo_path.exists():
+        # tenta nome com espaços (upload GitHub)
+        alt = input_path.parent / "Custo de itens exceto etiquetas - jul 26.xlsx"
+        custo_path = alt if alt.exists() else None
 
-    df = calcular_relatorio(input_path, etiq_path, frete_path)
+    df = calcular_relatorio(input_path, etiq_path, frete_path, custo_path)
     summary = resumo(df)
     incompletos = df[df["Status custo"] == STATUS_INCOMPLETO].copy()
     from_planilha = df[df["Base custo unitário"].fillna("").str.startswith("planilha_jul26")].copy()
     frete_real_rows = df[df["Base frete"].fillna("").str.startswith("planilha")].copy()
+    custo_real_rows = df[df["Base custo unitário"].fillna("").isin(["planilha_custo", "planilha_ribbon"])].copy()
+
+    # Garante NF como texto (4 dígitos) no Excel
+    df = df.copy()
+    df["Número"] = df["Número"].map(lambda x: None if x is None or (isinstance(x, float) and pd.isna(x)) else str(x))
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name="Relatorio", index=False)
@@ -1064,6 +1160,17 @@ def main() -> None:
         incompletos.to_excel(writer, sheet_name="Custo_Incompleto", index=False)
         from_planilha.to_excel(writer, sheet_name="Etiquetas_Planilha", index=False)
         frete_real_rows.to_excel(writer, sheet_name="Frete_Real", index=False)
+        custo_real_rows.to_excel(writer, sheet_name="Custo_Real", index=False)
+        # Força coluna Número como texto
+        ws = writer.sheets["Relatorio"]
+        headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+        if "Número" in headers:
+            col = headers.index("Número") + 1
+            for row in range(2, ws.max_row + 1):
+                cell = ws.cell(row=row, column=col)
+                if cell.value is not None:
+                    cell.value = str(cell.value)
+                    cell.number_format = "@"
 
     print(f"Relatório gerado: {output_path}")
     print(summary.to_string(index=False))
@@ -1074,6 +1181,10 @@ def main() -> None:
     print(
         "Frete real:",
         frete_real_rows.groupby("Base frete")["Frete"].agg(["count", "sum"]).to_string(),
+    )
+    print(
+        "Custo real:",
+        custo_real_rows.groupby("Base custo unitário").size().to_string(),
     )
 
     # Gera também o dashboard HTML ao lado do Excel
