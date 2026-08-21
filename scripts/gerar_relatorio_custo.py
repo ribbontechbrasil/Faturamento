@@ -51,7 +51,7 @@ CUSTO_TUBETE_POR_POL = {
 
 SITUACOES_EXCLUIDAS = {"Cancelada", "Rejeitada", "Denegada"}
 # NFs removidas do relatório a pedido (ex.: itens sem regra de custo)
-NFS_EXCLUIDAS = {"3563"}
+NFS_EXCLUIDAS = {"3563", "3565"}
 SEGMENTOS_ETIQUETA = {"Etiqueta Branca", "Etiqueta Colorida"}
 SEGMENTOS_LOOKUP = {"Ribbon", "Suprimentos"}
 
