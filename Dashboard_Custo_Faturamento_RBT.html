@@ -155,6 +155,14 @@
     .click-note { margin-top: .55rem; font-size: .82rem; color: var(--ink-soft); }
 
     table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    td.nfs-cell {
+      max-width: 14rem;
+      font-variant-numeric: tabular-nums;
+      font-size: .82rem;
+      color: var(--ink-soft, #3a4a52);
+      white-space: normal;
+      word-break: break-word;
+    }
     th, td { text-align: left; padding: .62rem .4rem; border-bottom: 1px solid var(--line); vertical-align: top; }
     th { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); }
     tr.item-row { cursor: pointer; }
@@ -496,6 +504,7 @@
             <thead>
               <tr>
                 <th>Cliente</th>
+                <th>NFs</th>
                 <th>Venda</th>
                 <th>Lucro</th>
                 <th>% Lucro</th>
@@ -1735,19 +1744,31 @@
       const map = new Map();
       for (const r of baseForList) {
         const k = r.c || 'N/D';
-        const cur = map.get(k) || { venda: 0, liq: 0, custo: 0 };
+        const cur = map.get(k) || { venda: 0, liq: 0, custo: 0, nfs: new Set() };
         if (r.v != null) cur.venda += r.v;
         if (r.l != null) cur.liq += r.l;
         if (r.ct != null) cur.custo += r.ct;
+        if (r.n) cur.nfs.add(String(r.n));
         map.set(k, cur);
       }
       const faixaCli = state.clienteLucroFaixa || '';
       const allRanked = [...map.entries()]
-        .map(([nome, v]) => ({
-          nome,
-          ...v,
-          lucroPct: v.custo > 0 ? v.liq / v.custo : null
-        }))
+        .map(([nome, v]) => {
+          const nfsList = [...v.nfs].sort((a, b) => {
+            const na = Number(a), nb = Number(b);
+            if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
+            return String(a).localeCompare(String(b), 'pt-BR');
+          });
+          return {
+            nome,
+            venda: v.venda,
+            liq: v.liq,
+            custo: v.custo,
+            nfsList,
+            nfsTxt: nfsList.join(', '),
+            lucroPct: v.custo > 0 ? v.liq / v.custo : null
+          };
+        })
         .filter(c => inLucroFaixaCliente(c.lucroPct, faixaCli))
         .sort((a, b) => {
           // Com filtro de faixa: ordem crescente de % lucro
@@ -1779,18 +1800,19 @@
         const limTxt = topN > 0 && allRanked.length > ranked.length
           ? ` · mostrando ${ranked.length} de ${allRanked.length}`
           : ` · ${ranked.length} cliente(s)`;
-        meta.textContent = `Clique na linha para filtrar; clique de novo ou em “Ver todos” para limpar${faixaTxt}${limTxt}.`;
+        meta.textContent = `NFs do filtro atual por cliente. Clique na linha para filtrar; clique de novo ou em “Ver todos” para limpar${faixaTxt}${limTxt}.`;
       }
 
       const tb = document.getElementById('tblClientes');
       tb.innerHTML = ranked.map(c => `
         <tr class="item-row ${clienteAtivo === c.nome ? 'active' : ''}" data-cliente="${c.nome.replaceAll('"', '&quot;')}">
           <td>${c.nome}</td>
+          <td title="${c.nfsTxt.replaceAll('"', '&quot;')}">${c.nfsTxt || '—'}</td>
           <td>${money(c.venda)}</td>
           <td class="${c.liq < 0 ? 'neg' : 'pos'}">${money(c.liq)}</td>
           <td class="${(c.lucroPct ?? 0) < 0 ? 'neg' : 'pos'}">${pct(c.lucroPct)}</td>
         </tr>
-      `).join('') || `<tr><td colspan="4">Nenhum cliente na faixa ${CLIENTE_FAIXA_LABEL[faixaCli] || 'selecionada'}.</td></tr>`;
+      `).join('') || `<tr><td colspan="5">Nenhum cliente na faixa ${CLIENTE_FAIXA_LABEL[faixaCli] || 'selecionada'}.</td></tr>`;
 
       syncFaixaClienteButtons(faixaCli);
 
