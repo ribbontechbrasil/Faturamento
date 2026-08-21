@@ -692,6 +692,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
               <th>Descrição</th>
               <th>Venda</th>
               <th>Custo</th>
+              <th>Frete</th>
               <th>Venda líquida</th>
               <th>% Lucro</th>
               <th>Status</th>
@@ -960,7 +961,11 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       const manual = state.manualCosts[key];
       if (r.st === 'inc' && manual != null && Number.isFinite(manual)) {{
         out.ct = Math.round(manual * 100) / 100;
-        out.f = out.v != null ? Math.round(out.v * 0.03 * 100) / 100 : null;
+        // Preserva frete real da planilha; só usa 3% se não houver frete informado
+        const fretePlanilha = r.fb && String(r.fb).startsWith('planilha');
+        if (!fretePlanilha || out.f == null) {{
+          out.f = out.v != null ? Math.round(out.v * 0.03 * 100) / 100 : null;
+        }}
         out.i = out.v != null ? Math.round(out.v * 0.092 * 100) / 100 : null;
         if (out.v != null) {{
           out.l = Math.round((out.v - out.ct - (out.f || 0) - (out.i || 0)) * 100) / 100;
@@ -1970,7 +1975,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       }}
       const header = [
         'Data', 'NF', 'Cliente', 'Segmento', 'Código', 'Descrição',
-        'Material', 'Venda', 'Custo', 'Venda líquida', '% Lucro', 'Status', 'Custo/rolo'
+        'Material', 'Venda', 'Custo', 'Frete', 'Venda líquida', '% Lucro', 'Status', 'Custo/rolo'
       ];
       const lines = [header.map(csvCell).join(';')];
       for (const r of rows) {{
@@ -1984,6 +1989,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           r.mat || '',
           numBr(r.v),
           numBr(r.ct),
+          numBr(r.f),
           numBr(r.l),
           r.p == null || Number.isNaN(r.p) ? '' : numBr(r.p * 100, 1),
           statusLabel(r.st),
@@ -2033,11 +2039,12 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           <td title="${{(r.desc || '').replaceAll('"', '&quot;')}}">${{r.desc || '—'}}</td>
           <td>${{money(r.v)}}</td>
           <td class="cost-cell">${{costCell}}</td>
+          <td title="${{(r.fb || '').replaceAll('"', '&quot;')}}">${{money(r.f)}}</td>
           <td class="${{(r.l ?? 0) < 0 ? 'neg' : ''}}">${{money(r.l)}}</td>
           <td class="${{(r.p ?? 0) < 0 ? 'neg' : 'pos'}}">${{pct(r.p)}}</td>
           <td>${{statusLabel(r.st)}}</td>
         </tr>`;
-      }}).join('') || `<tr><td colspan="10">Nenhum item para os filtros atuais.</td></tr>`;
+      }}).join('') || `<tr><td colspan="11">Nenhum item para os filtros atuais.</td></tr>`;
 
       tb.querySelectorAll('tr[data-cliente]').forEach(tr => {{
         tr.addEventListener('click', (ev) => {{
