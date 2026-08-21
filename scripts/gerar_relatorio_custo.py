@@ -487,6 +487,12 @@ def load_planilha_etiquetas(path: Path | None) -> pd.DataFrame:
     df["_nr_etiquetas"] = df["quantidade etiquetas por rolo"].map(br_to_float)
     df["_custo_mat"] = df["Custo do material"].map(br_to_float)
     df["_custo_emb_rolo"] = df["custo embalagem por rolo"].map(br_to_float)
+    # Frete real por item (coluna "frete" da planilha jul/26)
+    frete_col = next((c for c in df.columns if str(c).strip().lower() == "frete"), None)
+    if frete_col is not None:
+        df["_frete"] = df[frete_col].map(br_to_float)
+    else:
+        df["_frete"] = None
     dims = df["dimensões"].map(parse_dimensoes_planilha)
     df["_largura"] = [d[0] for d in dims]
     df["_altura"] = [d[1] for d in dims]
@@ -567,6 +573,11 @@ def detalhe_from_planilha(row: pd.Series) -> dict:
     )
     detalhe["tubete_pol"] = row.get("_tub_pol")
     detalhe["fonte"] = "planilha_jul26"
+    frete_real = row.get("_frete")
+    if frete_real is not None and not (isinstance(frete_real, float) and pd.isna(frete_real)):
+        detalhe["frete_real"] = float(frete_real)
+    else:
+        detalhe["frete_real"] = None
     return detalhe
 
 
@@ -680,6 +691,10 @@ def calcular_relatorio(path: Path, etiqueta_cost_sheet: Path | None = None) -> p
             pendencias.append("valor_venda")
 
         completo = custo_unit is not None and qtd is not None and venda is not None
+        frete_real = detalhe.get("frete_real")
+        usa_frete_real = frete_real is not None
+        base_frete = "planilha" if usa_frete_real else ("3%" if venda is not None else None)
+
         if completo:
             # Para planilha com qtd de tubetes alinhada à NF: custo_rolo * qtd
             if (
@@ -692,7 +707,7 @@ def calcular_relatorio(path: Path, etiqueta_cost_sheet: Path | None = None) -> p
                 custo_total = float(detalhe["custo_total_planilha"])
             else:
                 custo_total = custo_unit * qtd
-            frete = venda * 0.03
+            frete = float(frete_real) if usa_frete_real else venda * 0.03
             imposto = venda * 0.092
             venda_liquida = venda - custo_total - frete - imposto
             perc_lucro = (venda_liquida / custo_total) if custo_total else None
@@ -700,7 +715,10 @@ def calcular_relatorio(path: Path, etiqueta_cost_sheet: Path | None = None) -> p
             pendencia_txt = ""
         else:
             custo_total = None
-            frete = venda * 0.03 if venda is not None else None
+            if usa_frete_real:
+                frete = float(frete_real)
+            else:
+                frete = venda * 0.03 if venda is not None else None
             imposto = venda * 0.092 if venda is not None else None
             venda_liquida = None
             perc_lucro = None
@@ -740,7 +758,9 @@ def calcular_relatorio(path: Path, etiqueta_cost_sheet: Path | None = None) -> p
                 "Base custo unitário": base_custo,
                 "Custo unitário item": custo_unit,
                 "Custo total item": custo_total,
-                "Frete (3%)": frete,
+                "Frete": frete,
+                "Base frete": base_frete,
+                "Frete (3%)": frete,  # compatibilidade com dashboard antigo
                 "Imposto (9,2%)": imposto,
                 "Venda líquida": venda_liquida,
                 "% Lucro": perc_lucro,

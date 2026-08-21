@@ -58,9 +58,22 @@ def build_rows(df: pd.DataFrame) -> list[dict]:
                 "ct": None
                 if pd.isna(r.get("Custo total item"))
                 else round(float(r.get("Custo total item")), 2),
-                "f": None
-                if pd.isna(r.get("Frete (3%)"))
-                else round(float(r.get("Frete (3%)")), 2),
+                "f": (
+                    None
+                    if (
+                        (pd.isna(r.get("Frete")) if "Frete" in r.index else True)
+                        and (pd.isna(r.get("Frete (3%)")) if "Frete (3%)" in r.index else True)
+                    )
+                    else round(
+                        float(
+                            r.get("Frete")
+                            if "Frete" in r.index and pd.notna(r.get("Frete"))
+                            else r.get("Frete (3%)")
+                        ),
+                        2,
+                    )
+                ),
+                "fb": None if ("Base frete" not in r.index or pd.isna(r.get("Base frete"))) else str(r.get("Base frete")),
                 "i": None
                 if pd.isna(r.get("Imposto (9,2%)"))
                 else round(float(r.get("Imposto (9,2%)")), 2),
