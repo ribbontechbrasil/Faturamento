@@ -740,6 +740,7 @@ def match_frete_ribbon(
     frete = planilha.at[best_idx, "_frete"]
     custo_unit = planilha.at[best_idx, "_custo_unit"]
     custo_total = planilha.at[best_idx, "_custo_total"]
+    venda_plan = planilha.at[best_idx, "_venda"]
 
     def _num(v):
         if v is None or (isinstance(v, float) and pd.isna(v)):
@@ -750,6 +751,7 @@ def match_frete_ribbon(
         "frete": _num(frete),
         "custo_unit": _num(custo_unit),
         "custo_total": _num(custo_total),
+        "venda": _num(venda_plan),
     }
 
 
@@ -941,6 +943,13 @@ def calcular_relatorio(
                 if match_rib.get("frete") is not None:
                     frete_real = match_rib["frete"]
                     base_frete_src = "planilha_ribbon"
+                # Venda da planilha (corrige divergências do faturamento, ex. NF 3568)
+                if match_rib.get("venda") is not None:
+                    venda = float(match_rib["venda"])
+                    if qtd is not None and qtd > 0:
+                        valor_unit = venda / qtd
+                    if "valor_venda" in pendencias:
+                        pendencias = [p for p in pendencias if p != "valor_venda"]
                 # Custo da planilha ribbon (pode ser sobrescrito pela planilha de custos)
                 if match_rib.get("custo_total") is not None and (
                     qtd is None
