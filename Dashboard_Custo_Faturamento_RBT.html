@@ -153,6 +153,7 @@
     .neg { color: #a12828; font-weight: 600; }
     .pos { color: var(--good); font-weight: 600; }
     .table-wrap { overflow: auto; max-height: 420px; }
+    .table-wrap.tall-list { max-height: 560px; }
     .cost-input {
       width: 110px;
       border: 1px solid rgba(196,92,38,.45);
@@ -381,12 +382,13 @@
         <label>Busca cliente / código / descrição
           <input type="search" id="fBusca" placeholder="Ex.: Ribbon, MG, 300443..." />
         </label>
-        <label>Top N clientes na tabela
+        <label>Qtd. clientes na tabela
           <select id="fTopN">
-            <option value="10">10</option>
+            <option value="0" selected>Todos</option>
             <option value="20">20</option>
             <option value="50">50</option>
             <option value="100">100</option>
+            <option value="200">200</option>
           </select>
         </label>
         <label>Itens por página
@@ -469,7 +471,7 @@
         <div class="section-head">
           <div>
             <h2>Lucro por cliente</h2>
-            <p>Nas faixas, clientes em ordem crescente de % lucro. Clique na linha para filtrar; clique de novo ou em “Ver todos” para limpar.</p>
+            <p id="clientesMeta">Nas faixas, clientes em ordem crescente de % lucro. Clique na linha para filtrar; clique de novo ou em “Ver todos” para limpar.</p>
           </div>
         </div>
         <div class="faixa-bar" id="faixaClienteBar" role="group" aria-label="Faixas de lucro por cliente">
@@ -480,7 +482,7 @@
           <button type="button" data-faixa="gt51">Acima de 51%</button>
           <button type="button" id="btnLimparCliente" class="btn-ghost" style="margin-left:.35rem;">Ver todos os clientes</button>
         </div>
-        <div class="panel table-wrap">
+        <div class="panel table-wrap tall-list">
           <table>
             <thead>
               <tr>
@@ -954,7 +956,7 @@
         busca: (document.getElementById('fBusca').value || '').trim().toLowerCase(),
         meses: checkedValues('mes'),
         despCats: checkedValues('despcat'),
-        topN: Number(document.getElementById('fTopN').value || 10),
+        topN: Number(document.getElementById('fTopN').value || 0),
         pageSize: Number(document.getElementById('fPageSize').value || 50),
       };
     }
@@ -1605,8 +1607,8 @@
           return a.nome.localeCompare(b.nome, 'pt-BR');
         });
 
-      const topN = Number(filters.topN || 10);
-      const cliView = rankedCli.slice(0, Math.max(topN, 20));
+      const topN = Number(filters.topN || 0);
+      const cliView = topN > 0 ? rankedCli.slice(0, topN) : rankedCli;
       const tbCli = document.getElementById('tblCustoRoloCliente');
       tbCli.innerHTML = cliView.map(c => `
         <tr class="item-row ${filters.cliente === c.nome ? 'active' : ''}" data-cliente="${c.nome.replaceAll('"', '&quot;')}">
@@ -1720,7 +1722,7 @@
         map.set(k, cur);
       }
       const faixaCli = state.clienteLucroFaixa || '';
-      const ranked = [...map.entries()]
+      const allRanked = [...map.entries()]
         .map(([nome, v]) => ({
           nome,
           ...v,
@@ -1738,8 +1740,9 @@
             return b.venda - a.venda;
           }
           return b.venda - a.venda;
-        })
-        .slice(0, filters.topN);
+        });
+      const topN = Number(filters.topN || 0);
+      const ranked = topN > 0 ? allRanked.slice(0, topN) : allRanked;
 
       const clienteAtivo = filters.cliente || '';
       const btnLimpar = document.getElementById('btnLimparCliente');
@@ -1748,6 +1751,15 @@
         btnLimpar.textContent = clienteAtivo
           ? `Ver todos (limpo: ${clienteAtivo.length > 28 ? clienteAtivo.slice(0, 28) + '…' : clienteAtivo})`
           : 'Ver todos os clientes';
+      }
+
+      const meta = document.getElementById('clientesMeta');
+      if (meta) {
+        const faixaTxt = faixaCli ? ` · faixa ${CLIENTE_FAIXA_LABEL[faixaCli] || faixaCli}` : '';
+        const limTxt = topN > 0 && allRanked.length > ranked.length
+          ? ` · mostrando ${ranked.length} de ${allRanked.length}`
+          : ` · ${ranked.length} cliente(s)`;
+        meta.textContent = `Clique na linha para filtrar; clique de novo ou em “Ver todos” para limpar${faixaTxt}${limTxt}.`;
       }
 
       const tb = document.getElementById('tblClientes');
@@ -1919,7 +1931,7 @@
       document.getElementById('fStatus').value = '';
       document.getElementById('fLucroFaixa').value = '';
       document.getElementById('fBusca').value = '';
-      document.getElementById('fTopN').value = '10';
+      document.getElementById('fTopN').value = '0';
       document.getElementById('fPageSize').value = '50';
       document.getElementById('fCliente').value = '';
       document.getElementById('fUF').value = '';
