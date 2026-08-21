@@ -510,6 +510,45 @@
     <section>
       <div class="section-head">
         <div>
+          <h2>Lucro por item</h2>
+          <p id="itensMeta">Detalhe dos itens no filtro atual.</p>
+        </div>
+        <div class="filter-actions" style="margin:0;">
+          <button class="btn-ghost" id="btnPrev" type="button">Anterior</button>
+          <button class="btn-ghost" id="btnNext" type="button">Próxima</button>
+        </div>
+      </div>
+      <div class="faixa-bar" id="faixaLucroBar" role="group" aria-label="Faixas de lucro por item">
+        <span class="faixa-label">Faixa de lucro:</span>
+        <button type="button" data-faixa="" class="active">Todas</button>
+        <button type="button" data-faixa="lt10">Abaixo de 10%</button>
+        <button type="button" data-faixa="11-30">11% a 30%</button>
+        <button type="button" data-faixa="gt30">Acima de 30%</button>
+      </div>
+      <div class="panel table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>NF</th>
+              <th>Cliente</th>
+              <th>Segmento</th>
+              <th>Descrição</th>
+              <th>Venda</th>
+              <th>Custo</th>
+              <th>Venda líquida</th>
+              <th>% Lucro</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="tblItens"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div>
           <h2>Custo por rolo de etiqueta</h2>
           <p>Veja o custo de cada rolo por cliente e NF. Use os botões de tipo para filtrar.</p>
         </div>
@@ -600,45 +639,6 @@
             </tr>
           </thead>
           <tbody id="tblDespesas"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-head">
-        <div>
-          <h2>Lucro por item</h2>
-          <p id="itensMeta">Detalhe dos itens no filtro atual.</p>
-        </div>
-        <div class="filter-actions" style="margin:0;">
-          <button class="btn-ghost" id="btnPrev" type="button">Anterior</button>
-          <button class="btn-ghost" id="btnNext" type="button">Próxima</button>
-        </div>
-      </div>
-      <div class="faixa-bar" id="faixaLucroBar" role="group" aria-label="Faixas de lucro por item">
-        <span class="faixa-label">Faixa de lucro:</span>
-        <button type="button" data-faixa="" class="active">Todas</button>
-        <button type="button" data-faixa="lt10">Abaixo de 10%</button>
-        <button type="button" data-faixa="11-30">11% a 30%</button>
-        <button type="button" data-faixa="gt30">Acima de 30%</button>
-      </div>
-      <div class="panel table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Data</th>
-              <th>NF</th>
-              <th>Cliente</th>
-              <th>Segmento</th>
-              <th>Descrição</th>
-              <th>Venda</th>
-              <th>Custo</th>
-              <th>Venda líquida</th>
-              <th>% Lucro</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody id="tblItens"></tbody>
         </table>
       </div>
     </section>
