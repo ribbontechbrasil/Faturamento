@@ -620,6 +620,10 @@ def load_planilha_frete_ribbon(path: Path | None) -> pd.DataFrame:
             colmap[c] = "Item"
         elif cl.startswith("qtde") or cl in {"qtd", "quantidade"}:
             colmap[c] = "Qtde."
+        elif "custo unit" in cl:
+            colmap[c] = "Custo Unit."
+        elif "custo total" in cl:
+            colmap[c] = "Custo Total"
         elif cl in {"venda", "valor"}:
             colmap[c] = "Venda"
         elif cl == "frete":
@@ -634,10 +638,10 @@ def load_planilha_frete_ribbon(path: Path | None) -> pd.DataFrame:
     df["_qtd"] = df["Qtde."].map(br_to_float) if "Qtde." in df.columns else None
     df["_venda"] = df["Venda"].map(br_to_float) if "Venda" in df.columns else None
     df["_frete"] = df["Frete"].map(br_to_float)
+    df["_custo_unit"] = df["Custo Unit."].map(br_to_float) if "Custo Unit." in df.columns else None
+    df["_custo_total"] = df["Custo Total"].map(br_to_float) if "Custo Total" in df.columns else None
     df["_used"] = False
 
-    # Corrige NFs digitadas sem o 1 inicial (ex.: 1059 → 1159) quando a chave
-    # original não existe no faturamento, mas nf+100 casa com item/qtd/venda.
     return df
 
 
@@ -660,8 +664,11 @@ def match_frete_ribbon(
     code: str | None,
     qtd: float | None,
     venda: float | None,
-) -> float | None:
-    """Retorna frete real (inclui 0) ou None se não houver linha correspondente."""
+) -> dict | None:
+    """Casa item na planilha ribbon e retorna frete/custo reais.
+
+    Retorno: {"frete", "custo_unit", "custo_total"} (valores podem ser None).
+    """
     if planilha is None or planilha.empty or not nf_key:
         return None
 
@@ -695,7 +702,6 @@ def match_frete_ribbon(
 
     if best_idx is None or best_score < 8:
         # Exige código + (qtd ou venda) para evitar colisão RT vs numérica
-        # (ex.: 001130 vs RT001130).
         livres = cands[~cands["_used"]]
         if (
             best_idx is not None
@@ -703,19 +709,37 @@ def match_frete_ribbon(
             and ck
             and len(livres[livres["_code_key"] == ck]) == 1
             and (
-                (qtd is not None and livres.iloc[0].get("_qtd") is not None and abs(qtd - float(livres.iloc[0]["_qtd"])) < 0.01)
-                or (venda is not None and livres.iloc[0].get("_venda") is not None and abs(venda - float(livres.iloc[0]["_venda"])) < 0.05)
+                (
+                    qtd is not None
+                    and livres.iloc[0].get("_qtd") is not None
+                    and abs(qtd - float(livres.iloc[0]["_qtd"])) < 0.01
+                )
+                or (
+                    venda is not None
+                    and livres.iloc[0].get("_venda") is not None
+                    and abs(venda - float(livres.iloc[0]["_venda"])) < 0.05
+                )
             )
         ):
             best_idx = livres[livres["_code_key"] == ck].index[0]
         elif best_idx is None or best_score < 8:
             return None
 
-    frete = planilha.at[best_idx, "_frete"]
     planilha.at[best_idx, "_used"] = True
-    if frete is None or (isinstance(frete, float) and pd.isna(frete)):
-        return None
-    return float(frete)
+    frete = planilha.at[best_idx, "_frete"]
+    custo_unit = planilha.at[best_idx, "_custo_unit"]
+    custo_total = planilha.at[best_idx, "_custo_total"]
+
+    def _num(v):
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return None
+        return float(v)
+
+    return {
+        "frete": _num(frete),
+        "custo_unit": _num(custo_unit),
+        "custo_total": _num(custo_total),
+    }
 
 
 def calcular_relatorio(
@@ -835,20 +859,43 @@ def calcular_relatorio(
         if venda is None:
             pendencias.append("valor_venda")
 
-        # Frete real: etiquetas pela planilha de etiquetas; demais itens pela planilha ribbon
+        # Frete/custo real: etiquetas pela planilha de etiquetas; demais pela planilha ribbon
         frete_real = detalhe.get("frete_real")
         base_frete_src = "planilha_etiqueta" if frete_real is not None else None
-        if frete_real is None and not is_etiqueta:
-            frete_rib = match_frete_ribbon(
+        match_rib = None
+        if not is_etiqueta:
+            match_rib = match_frete_ribbon(
                 planilha_frete,
                 norm_nf(r.get("Número")),
                 r.get("code"),
                 qtd,
                 venda,
             )
-            if frete_rib is not None:
-                frete_real = frete_rib
-                base_frete_src = "planilha_ribbon"
+            if match_rib is not None:
+                if match_rib.get("frete") is not None:
+                    frete_real = match_rib["frete"]
+                    base_frete_src = "planilha_ribbon"
+                # Custo real da planilha (ex.: 33,60 em vez de 32,00 do Custos_RS)
+                if match_rib.get("custo_total") is not None and (
+                    qtd is None
+                    or match_rib.get("custo_unit") is None
+                    or (
+                        match_rib.get("custo_unit") is not None
+                        and qtd is not None
+                        and abs(match_rib["custo_total"] - match_rib["custo_unit"] * qtd) < 0.05
+                    )
+                ):
+                    if qtd is not None and qtd > 0:
+                        custo_unit = float(match_rib["custo_total"]) / qtd
+                    elif match_rib.get("custo_unit") is not None:
+                        custo_unit = float(match_rib["custo_unit"])
+                    base_custo = "planilha_ribbon"
+                    # remove pendência de custo se havia
+                    pendencias = [p for p in pendencias if p not in {"custo_rs", "codigo", "segmento_sem_regra"}]
+                elif match_rib.get("custo_unit") is not None:
+                    custo_unit = float(match_rib["custo_unit"])
+                    base_custo = "planilha_ribbon"
+                    pendencias = [p for p in pendencias if p not in {"custo_rs", "codigo", "segmento_sem_regra"}]
 
         completo = custo_unit is not None and qtd is not None and venda is not None
         usa_frete_real = frete_real is not None
@@ -867,10 +914,14 @@ def calcular_relatorio(
                 and abs(qtd - float(detalhe["qtd_tubetes"])) < 0.01
             ):
                 custo_total = float(detalhe["custo_total_planilha"])
+            elif base_custo == "planilha_ribbon" and match_rib and match_rib.get("custo_total") is not None:
+                # Prefer total da planilha quando o item ribbon foi casado
+                custo_total = float(match_rib["custo_total"])
             else:
                 custo_total = custo_unit * qtd
             frete = float(frete_real) if usa_frete_real else venda * 0.03
             imposto = venda * 0.092
+            # % lucro = (venda - custo - frete - imposto) / custo  (custo do produto, sem frete)
             venda_liquida = venda - custo_total - frete - imposto
             perc_lucro = (venda_liquida / custo_total) if custo_total else None
             status = STATUS_OK
