@@ -58,6 +58,11 @@ def categorizar(fornecedor: str, historico: str) -> tuple[str, str]:
     if "visita cliente" in h or "despesas comerciais" in h or "despesa comercial" in h:
         return "Visita cliente", "Despesas comerciais"
 
+    if "comiss" in h and "vend" in h:
+        return "Comissão de vendas", "Comissão de vendas"
+    if h.strip() in {"comissao", "comissão"} or h.startswith("comissao") or h.startswith("comissão"):
+        return "Comissão de vendas", "Comissão de vendas"
+
     if "bdmg" in f or ("emprest" in h and "bdmg" in f):
         return "BDMG – Empréstimo", "Empréstimo"
 
