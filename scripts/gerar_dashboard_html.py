@@ -87,18 +87,8 @@ def build_rows(df: pd.DataFrame) -> list[dict]:
                 else round(float(r.get("Custo total item")), 2),
                 "f": (
                     None
-                    if (
-                        (pd.isna(r.get("Frete")) if "Frete" in r.index else True)
-                        and (pd.isna(r.get("Frete (3%)")) if "Frete (3%)" in r.index else True)
-                    )
-                    else round(
-                        float(
-                            r.get("Frete")
-                            if "Frete" in r.index and pd.notna(r.get("Frete"))
-                            else r.get("Frete (3%)")
-                        ),
-                        2,
-                    )
+                    if ("Frete" not in r.index or pd.isna(r.get("Frete")))
+                    else round(float(r.get("Frete")), 2)
                 ),
                 "fb": None if ("Base frete" not in r.index or pd.isna(r.get("Base frete"))) else str(r.get("Base frete")),
                 "i": None
@@ -2039,7 +2029,11 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           <td title="${{(r.desc || '').replaceAll('"', '&quot;')}}">${{r.desc || '—'}}</td>
           <td>${{money(r.v)}}</td>
           <td class="cost-cell">${{costCell}}</td>
-          <td title="${{(r.fb || '').replaceAll('"', '&quot;')}}">${{money(r.f)}}</td>
+          <td title="${{
+            (r.fb || '').startsWith('planilha')
+              ? 'Frete da tabela enviada'
+              : (r.fb === 'sem_tabela' ? 'Item sem frete na tabela (R$ 0)' : (r.fb || ''))
+          }}">${{money(r.f)}}</td>
           <td class="${{(r.l ?? 0) < 0 ? 'neg' : ''}}">${{money(r.l)}}</td>
           <td class="${{(r.p ?? 0) < 0 ? 'neg' : 'pos'}}">${{pct(r.p)}}</td>
           <td>${{statusLabel(r.st)}}</td>

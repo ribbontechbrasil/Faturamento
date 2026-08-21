@@ -103,7 +103,14 @@ def code_key(value) -> str | None:
 
 def codes_compatible(a: str | None, b: str | None) -> bool:
     """True se códigos representam o mesmo item (aliases comuns)."""
-    if not a or not b:
+    if a is None or b is None:
+        return False
+    if isinstance(a, float) and pd.isna(a):
+        return False
+    if isinstance(b, float) and pd.isna(b):
+        return False
+    a, b = str(a), str(b)
+    if not a or not b or a == "None" or b == "None":
         return False
     if a == b:
         return True
@@ -1063,7 +1070,7 @@ def calcular_relatorio(
             base_frete = base_frete_src or "planilha"
             frete_valor = float(frete_real)
         elif venda is not None:
-            base_frete = "0"
+            base_frete = "sem_tabela"
             frete_valor = 0.0
         else:
             base_frete = None
@@ -1140,7 +1147,6 @@ def calcular_relatorio(
                 "Custo total item": custo_total,
                 "Frete": frete,
                 "Base frete": base_frete,
-                "Frete (3%)": frete,  # legado: valor de frete aplicado (não é mais 3%)
                 "Imposto (9,2%)": imposto,
                 "Venda líquida": venda_liquida,
                 "% Lucro": perc_lucro,
@@ -1236,6 +1242,78 @@ def main() -> None:
     frete_real_rows = df[df["Base frete"].fillna("").str.startswith("planilha")].copy()
     custo_real_rows = df[df["Base custo unitário"].fillna("").isin(["planilha_custo", "planilha_ribbon"])].copy()
 
+    # Conferência: cada linha da planilha ribbon × frete aplicado no relatório
+    frete_conf_rows = []
+    if frete_path and Path(frete_path).exists():
+        rib_src = pd.read_excel(frete_path)
+        df_chk = df.copy()
+        df_chk["_nd"] = df_chk["Número"].map(
+            lambda x: nf_digits(norm_nf(x)) if x is not None and not (isinstance(x, float) and pd.isna(x)) else None
+        )
+        df_chk["_ck"] = df_chk["Código"].map(code_key)
+        for _, p in rib_src.iterrows():
+            nota = p.get("Nota") if "Nota" in rib_src.columns else p.get("NF")
+            item = p.get("Item") if "Item" in rib_src.columns else None
+            frete_p = br_to_float(p.get("Frete"))
+            frete_p = 0.0 if frete_p is None else frete_p
+            if nota is None or (isinstance(nota, float) and pd.isna(nota)) or str(nota).upper() == "SN":
+                frete_conf_rows.append(
+                    {
+                        "Nota planilha": nota,
+                        "Item": item,
+                        "Frete planilha": frete_p,
+                        "Frete relatório": None,
+                        "Status": "SN / sem NF no faturamento",
+                    }
+                )
+                continue
+            dig = nf_digits(norm_nf(nota))
+            alts = {dig}
+            if dig and dig.isdigit():
+                alts |= {str(int(dig) + 100), str(int(dig) - 100)}
+            cands = df_chk[df_chk["_nd"].isin(alts)]
+            ck = code_key(item)
+            best = None
+            best_score = -1
+            for _, h in cands.iterrows():
+                score = 0
+                if codes_compatible(ck, h.get("_ck")):
+                    score += 5
+                q = br_to_float(p.get("Qtde.")) if "Qtde." in rib_src.columns else None
+                if q is not None and h.get("Quantidade") is not None and abs(float(h["Quantidade"]) - q) < 0.01:
+                    score += 3
+                vv = br_to_float(p.get("Venda")) if "Venda" in rib_src.columns else None
+                if vv is not None and h.get("Valor total venda") is not None and abs(float(h["Valor total venda"]) - vv) < 0.05:
+                    score += 3
+                if score > best_score:
+                    best_score = score
+                    best = h
+            if best is None or best_score < 3:
+                frete_conf_rows.append(
+                    {
+                        "Nota planilha": nota,
+                        "Item": item,
+                        "Frete planilha": frete_p,
+                        "Frete relatório": None,
+                        "Status": "sem match no faturamento",
+                    }
+                )
+            else:
+                f_rel = float(best["Frete"] or 0)
+                ok = abs(f_rel - frete_p) < 0.05
+                frete_conf_rows.append(
+                    {
+                        "Nota planilha": nota,
+                        "Item": item,
+                        "Frete planilha": frete_p,
+                        "NF relatório": best.get("Número"),
+                        "Frete relatório": f_rel,
+                        "Base frete": best.get("Base frete"),
+                        "Status": "OK" if ok else "DIVERGE",
+                    }
+                )
+    frete_conf = pd.DataFrame(frete_conf_rows)
+
     # Garante NF como texto (4 dígitos) no Excel
     df = df.copy()
     df["Número"] = df["Número"].map(lambda x: None if x is None or (isinstance(x, float) and pd.isna(x)) else str(x))
@@ -1247,6 +1325,8 @@ def main() -> None:
         from_planilha.to_excel(writer, sheet_name="Etiquetas_Planilha", index=False)
         frete_real_rows.to_excel(writer, sheet_name="Frete_Real", index=False)
         custo_real_rows.to_excel(writer, sheet_name="Custo_Real", index=False)
+        if not frete_conf.empty:
+            frete_conf.to_excel(writer, sheet_name="Frete_Conferencia", index=False)
         # Força coluna Número como texto
         ws = writer.sheets["Relatorio"]
         headers = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
