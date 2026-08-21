@@ -50,6 +50,8 @@ CUSTO_TUBETE_POR_POL = {
 }
 
 SITUACOES_EXCLUIDAS = {"Cancelada", "Rejeitada", "Denegada"}
+# NFs removidas do relatório a pedido (ex.: itens sem regra de custo)
+NFS_EXCLUIDAS = {"3563"}
 SEGMENTOS_ETIQUETA = {"Etiqueta Branca", "Etiqueta Colorida"}
 SEGMENTOS_LOOKUP = {"Ribbon", "Suprimentos"}
 
@@ -909,6 +911,11 @@ def calcular_relatorio(
     # Excluir canceladas/rejeitadas/denegadas
     fat = fat[~fat["Situação"].isin(SITUACOES_EXCLUIDAS)].copy()
 
+    # Excluir NFs listadas (pedido do usuário)
+    fat["_nf_key"] = fat["Número"].map(norm_nf)
+    fat["_nf_dig"] = fat["_nf_key"].map(nf_digits)
+    fat = fat[~fat["_nf_dig"].isin(NFS_EXCLUIDAS)].copy()
+    fat = fat.drop(columns=["_nf_key", "_nf_dig"], errors="ignore")
     rows = []
     for _, r in fat.iterrows():
         segmento_nome = r.get("Segmento")
