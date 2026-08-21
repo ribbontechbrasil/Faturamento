@@ -115,6 +115,15 @@
     button:hover { transform: translateY(-1px); }
     .btn-primary { background: var(--teal); color: #fff; }
     .btn-ghost { background: rgba(20,33,43,.08); color: var(--ink); }
+    .btn-icon {
+      display: inline-flex; align-items: center; gap: .4rem;
+    }
+    .btn-icon svg { flex: 0 0 auto; }
+    #btnExportItens {
+      background: rgba(31,122,76,.12);
+      color: var(--good);
+    }
+    #btnExportItens:hover { background: rgba(31,122,76,.2); }
     .chip {
       display: inline-flex; align-items: center; gap: .35rem;
       background: rgba(31,111,120,.12); color: var(--teal-deep);
@@ -516,6 +525,12 @@
           <p id="itensMeta">Detalhe dos itens no filtro atual.</p>
         </div>
         <div class="filter-actions" style="margin:0;">
+          <button class="btn-ghost btn-icon" id="btnExportItens" type="button" title="Exportar lucro por item para Excel">
+            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm1 7V3.5L18.5 9H15zM8.2 18l2.1-3.2L8.3 12h1.7l1.2 1.9 1.2-1.9h1.6l-2 3 2.1 3.1h-1.7l-1.3-2-1.3 2H8.2z"/>
+            </svg>
+            Excel
+          </button>
           <button class="btn-ghost" id="btnPrev" type="button">Anterior</button>
           <button class="btn-ghost" id="btnNext" type="button">Próxima</button>
         </div>
@@ -1781,9 +1796,22 @@
       });
     }
 
-    function renderItens(rows, filters) {
-      const sorted = [...rows].sort((a,b) => {
-        // incompletos e manuais primeiro facilitam a digitação
+    function csvCell(v) {
+      const s = v == null ? '' : String(v);
+      if (/[;"\n\r]/.test(s)) return '"' + s.replaceAll('"', '""') + '"';
+      return s;
+    }
+
+    function numBr(v, digits = 2) {
+      if (v == null || Number.isNaN(v)) return '';
+      return Number(v).toLocaleString('pt-BR', {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+      });
+    }
+
+    function sortedItens(rows) {
+      return [...rows].sort((a,b) => {
         const rank = (st) => st === 'inc' ? 0 : st === 'manual' ? 1 : 2;
         const ra = rank(a.st), rb = rank(b.st);
         if (ra !== rb) return ra - rb;
@@ -1792,6 +1820,48 @@
         if (da !== db) return db.localeCompare(da);
         return (b.v || 0) - (a.v || 0);
       });
+    }
+
+    function exportItensExcel() {
+      const filters = readFilters();
+      const rows = sortedItens(applyFilters(filters));
+      if (!rows.length) {
+        alert('Não há itens para exportar com os filtros atuais.');
+        return;
+      }
+      const header = [
+        'Data', 'NF', 'Cliente', 'Segmento', 'Código', 'Descrição',
+        'Material', 'Venda', 'Custo', 'Venda líquida', '% Lucro', 'Status', 'Custo/rolo'
+      ];
+      const lines = [header.map(csvCell).join(';')];
+      for (const r of rows) {
+        lines.push([
+          fmtDate(r.d),
+          r.n || '',
+          r.c || '',
+          r.seg || '',
+          r.cod || '',
+          r.desc || '',
+          r.mat || '',
+          numBr(r.v),
+          numBr(r.ct),
+          numBr(r.l),
+          r.p == null || Number.isNaN(r.p) ? '' : numBr(r.p * 100, 1),
+          statusLabel(r.st),
+          numBr(r.cr, 4)
+        ].map(csvCell).join(';'));
+      }
+      const csv = '\uFEFF' + lines.join('\n');
+      const stamp = new Date().toISOString().slice(0, 10);
+      downloadBlob(
+        `lucro_por_item_RBT_${stamp}.csv`,
+        csv,
+        'text/csv;charset=utf-8;'
+      );
+    }
+
+    function renderItens(rows, filters) {
+      const sorted = sortedItens(rows);
       const pageSize = filters.pageSize;
       const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
       if (state.page >= pages) state.page = pages - 1;
@@ -1956,6 +2026,7 @@
     document.getElementById('btnLimpar').addEventListener('click', clearFilters);
     document.getElementById('btnPrev').addEventListener('click', () => { state.page -= 1; refresh(); });
     document.getElementById('btnNext').addEventListener('click', () => { state.page += 1; refresh(); });
+    document.getElementById('btnExportItens').addEventListener('click', exportItensExcel);
     document.getElementById('faixaLucroBar').addEventListener('click', (ev) => {
       const btn = ev.target.closest('button[data-faixa]');
       if (!btn) return;
