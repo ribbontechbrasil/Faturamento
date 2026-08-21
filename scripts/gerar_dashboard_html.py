@@ -563,7 +563,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         <div class="section-head">
           <div>
             <h2>Lucro por cliente</h2>
-            <p>Nas faixas, clientes em ordem crescente de % lucro. Clique na linha para filtrar.</p>
+            <p>Nas faixas, clientes em ordem crescente de % lucro. Clique na linha para filtrar; clique de novo ou em “Ver todos” para limpar.</p>
           </div>
         </div>
         <div class="faixa-bar" id="faixaClienteBar" role="group" aria-label="Faixas de lucro por cliente">
@@ -571,6 +571,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           <button type="button" data-faixa="" class="active">Todas</button>
           <button type="button" data-faixa="31-50">31% a 50%</button>
           <button type="button" data-faixa="gt51">Acima de 51%</button>
+          <button type="button" id="btnLimparCliente" class="btn-ghost" style="margin-left:.35rem;">Ver todos os clientes</button>
         </div>
         <div class="panel table-wrap">
           <table>
@@ -1028,7 +1029,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         inicio: document.getElementById('fInicio').value || null,
         fim: document.getElementById('fFim').value || null,
         segmentos: checkedValues('seg'),
-        cliente: document.getElementById('fCliente').value || state.selectedCliente || null,
+        cliente: document.getElementById('fCliente').value || null,
         uf: document.getElementById('fUF').value || null,
         material: document.getElementById('fMaterial').value || null,
         status: document.getElementById('fStatus').value || null,
@@ -1684,16 +1685,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
 
       tbCli.querySelectorAll('tr[data-cliente]').forEach(tr => {{
         tr.addEventListener('click', () => {{
-          const nome = tr.getAttribute('data-cliente');
-          const el = document.getElementById('fCliente');
-          if (el.value === nome) {{
-            el.value = '';
-            state.selectedCliente = null;
-          }} else {{
-            el.value = nome;
-            state.selectedCliente = nome;
-          }}
-          refresh();
+          toggleClienteFilter(tr.getAttribute('data-cliente'));
         }});
       }});
 
@@ -1739,21 +1731,49 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       tb.querySelectorAll('tr[data-cliente]').forEach(tr => {{
         tr.addEventListener('click', () => {{
           const nome = tr.getAttribute('data-cliente');
-          if (nome) {{
-            const el = document.getElementById('fCliente');
-            el.value = el.value === nome ? '' : nome;
-            state.selectedCliente = el.value || null;
-          }}
-          refresh();
+          if (nome) toggleClienteFilter(nome);
         }});
       }});
 
       syncTipoEtiquetaButtons(tipoFiltro);
     }}
 
+    function setClienteFilter(nome) {{
+      const el = document.getElementById('fCliente');
+      const next = nome || '';
+      // Garante que a opção exista no select (evita value “fantasma”)
+      if (next && el && ![...el.options].some(o => o.value === next)) {{
+        const opt = document.createElement('option');
+        opt.value = next;
+        opt.textContent = next;
+        el.appendChild(opt);
+      }}
+      if (el) el.value = next;
+      state.selectedCliente = next || null;
+    }}
+
+    function clearClienteFilter() {{
+      setClienteFilter('');
+      state.page = 0;
+      refresh();
+    }}
+
+    function toggleClienteFilter(nome) {{
+      if (!nome) {{
+        clearClienteFilter();
+        return;
+      }}
+      const atual = document.getElementById('fCliente').value || state.selectedCliente || '';
+      setClienteFilter(atual === nome ? '' : nome);
+      state.page = 0;
+      refresh();
+    }}
+
     function renderClientes(rows, filters) {{
+      // Lista de clientes sem o filtro de cliente, para poder voltar / trocar de cliente
+      const baseForList = applyFilters({{ ...filters, cliente: null }});
       const map = new Map();
-      for (const r of rows) {{
+      for (const r of baseForList) {{
         const k = r.c || 'N/D';
         const cur = map.get(k) || {{ venda: 0, liq: 0, custo: 0 }};
         if (r.v != null) cur.venda += r.v;
@@ -1783,9 +1803,18 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         }})
         .slice(0, filters.topN);
 
+      const clienteAtivo = filters.cliente || '';
+      const btnLimpar = document.getElementById('btnLimparCliente');
+      if (btnLimpar) {{
+        btnLimpar.style.display = clienteAtivo ? 'inline-flex' : 'none';
+        btnLimpar.textContent = clienteAtivo
+          ? `Ver todos (limpo: ${{clienteAtivo.length > 28 ? clienteAtivo.slice(0, 28) + '…' : clienteAtivo}})`
+          : 'Ver todos os clientes';
+      }}
+
       const tb = document.getElementById('tblClientes');
       tb.innerHTML = ranked.map(c => `
-        <tr class="item-row ${{filters.cliente === c.nome ? 'active' : ''}}" data-cliente="${{c.nome.replaceAll('"', '&quot;')}}">
+        <tr class="item-row ${{clienteAtivo === c.nome ? 'active' : ''}}" data-cliente="${{c.nome.replaceAll('"', '&quot;')}}">
           <td>${{c.nome}}</td>
           <td>${{money(c.venda)}}</td>
           <td class="${{c.liq < 0 ? 'neg' : 'pos'}}">${{money(c.liq)}}</td>
@@ -1797,16 +1826,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
 
       tb.querySelectorAll('tr[data-cliente]').forEach(tr => {{
         tr.addEventListener('click', () => {{
-          const nome = tr.getAttribute('data-cliente');
-          const el = document.getElementById('fCliente');
-          if (el.value === nome) {{
-            el.value = '';
-            state.selectedCliente = null;
-          }} else {{
-            el.value = nome;
-            state.selectedCliente = nome;
-          }}
-          refresh();
+          toggleClienteFilter(tr.getAttribute('data-cliente'));
         }});
       }});
     }}
@@ -1865,15 +1885,16 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           if (ev.target.closest('.cost-cell')) return;
           const nome = tr.getAttribute('data-cliente');
           const seg = tr.getAttribute('data-seg');
-          if (nome) {{
-            document.getElementById('fCliente').value = nome;
-            state.selectedCliente = nome;
-          }}
           if (seg && !isAtivo(seg)) {{
             const inputs = [...document.querySelectorAll('input[name="seg"]')];
             inputs.forEach(i => {{ i.checked = (i.value === seg); }});
           }}
-          refresh();
+          if (nome) {{
+            toggleClienteFilter(nome);
+          }} else {{
+            state.page = 0;
+            refresh();
+          }}
         }});
       }});
 
@@ -1942,7 +1963,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
 
     function refresh() {{
       const filters = readFilters();
-      if (filters.cliente) state.selectedCliente = filters.cliente;
+      state.selectedCliente = filters.cliente || null;
       const rows = applyFilters(filters);
       const despesas = applyDespesaFilters(filters);
       updateKpis(rows, despesas);
@@ -1994,10 +2015,19 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       refresh();
     }});
     document.getElementById('faixaClienteBar').addEventListener('click', (ev) => {{
+      if (ev.target.closest('#btnLimparCliente')) return;
       const btn = ev.target.closest('button[data-faixa]');
       if (!btn) return;
       state.clienteLucroFaixa = btn.getAttribute('data-faixa') || '';
       refresh();
+    }});
+    document.getElementById('btnLimparCliente').addEventListener('click', (ev) => {{
+      ev.preventDefault();
+      ev.stopPropagation();
+      clearClienteFilter();
+    }});
+    document.getElementById('fCliente').addEventListener('change', () => {{
+      state.selectedCliente = document.getElementById('fCliente').value || null;
     }});
     document.getElementById('faixaTipoEtiqBar').addEventListener('click', (ev) => {{
       const btn = ev.target.closest('button[data-tipo]');
