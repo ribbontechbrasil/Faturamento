@@ -61,6 +61,10 @@ STATUS_INCOMPLETO = "custo incompleto"
 DEFAULT_ETIQUETA_COST_SHEET = "Planilha_calculo_custo_etiquetas_jul26.xlsx"
 DEFAULT_FRETE_RIBBON_SHEET = "Ribbon_com_frete_real.xlsx"
 DEFAULT_CUSTO_ITENS_SHEET = "Custo_itens_exceto_etiquetas_jul26.xlsx"
+ETIQUETA_COST_SHEET_CANDIDATES = (
+    DEFAULT_ETIQUETA_COST_SHEET,
+    "Planilha para cálculo de custo de etiquetas - jul 26.xlsx",
+)
 CUSTO_ITENS_SHEET_CANDIDATES = (
     DEFAULT_CUSTO_ITENS_SHEET,
     "Custo de itens exceto etiquetas - jul 26.xlsx",
@@ -549,41 +553,120 @@ def load_segmento(path: Path) -> pd.DataFrame:
     return seg[["code", "Segmento"]]
 
 
+def _pick_col(df: pd.DataFrame, *names: str) -> str | None:
+    """Retorna o nome real da coluna (case-insensitive / strip)."""
+    lower = {str(c).strip().lower(): c for c in df.columns}
+    for name in names:
+        hit = lower.get(name.strip().lower())
+        if hit is not None:
+            return hit
+    return None
+
+
 def load_planilha_etiquetas(path: Path | None) -> pd.DataFrame:
+    """Carrega planilha só de etiquetas.
+
+    Formato atual: coluna "Custo Final" (X) já inclui embalagem, impostos,
+    tubete e frete — sem recalcular área/frete/imposto/tubete.
+    Aceita também o formato antigo (cálculo por metragem/tubete).
+    """
     if path is None or not path.exists():
         return pd.DataFrame()
-    df = pd.read_excel(path)
+
+    # Alguns uploads vêm com linha em branco acima do cabeçalho.
+    df = pd.read_excel(path, sheet_name=0)
+    if "NF" not in df.columns:
+        df = pd.read_excel(path, sheet_name=0, header=1)
+    if "NF" not in df.columns:
+        return pd.DataFrame()
+
     df = df.copy()
+    # Remove linhas sem NF (ex.: cabeçalho residual)
+    df = df[df["NF"].map(lambda v: v is not None and str(v).strip().upper() not in {"", "NF", "NAN"})].copy()
+
     df["_nf_key"] = df["NF"].map(norm_nf)
-    df["_qtd_tubetes"] = df["Quantidade tubetes"].map(br_to_float)
-    df["_metragem"] = df["metragem do rolo - m"].map(br_to_float)
-    df["_nr_etiquetas"] = df["quantidade etiquetas por rolo"].map(br_to_float)
-    df["_custo_mat"] = df["Custo do material"].map(br_to_float)
-    df["_custo_emb_rolo"] = df["custo embalagem por rolo"].map(br_to_float)
-    # Frete real por item (coluna "frete" da planilha jul/26)
-    frete_col = next((c for c in df.columns if str(c).strip().lower() == "frete"), None)
+
+    qtd_col = _pick_col(df, "nr. rolos", "Quantidade tubetes", "qtd tubetes", "nr rolos")
+    df["_qtd_tubetes"] = df[qtd_col].map(br_to_float) if qtd_col else None
+
+    met_col = _pick_col(df, "metragem do rolo - m", "metragem")
+    df["_metragem"] = df[met_col].map(br_to_float) if met_col else None
+
+    nr_col = _pick_col(df, "quantidade etiquetas por rolo")
+    df["_nr_etiquetas"] = df[nr_col].map(br_to_float) if nr_col else None
+
+    # Custo Final (coluna X): fonte oficial do formato novo
+    custo_final_col = _pick_col(df, "Custo Final", "custo final")
+    df["_custo_final"] = df[custo_final_col].map(br_to_float) if custo_final_col else None
+
+    mat_custo_col = _pick_col(df, "Custo do material")
+    # Formato novo: coluna numérica "matéria prima" / "matéria prima.1" (custo R$/m²)
+    if mat_custo_col is None:
+        for c in df.columns:
+            cl = str(c).strip().lower()
+            if "matéria prima" in cl or "materia prima" in cl:
+                sample = df[c].map(br_to_float)
+                if sample.notna().any():
+                    mat_custo_col = c
+                    break
+    df["_custo_mat"] = df[mat_custo_col].map(br_to_float) if mat_custo_col else None
+
+    emb_col = _pick_col(df, "custo embalagem por rolo")
+    df["_custo_emb_rolo"] = df[emb_col].map(br_to_float) if emb_col else None
+
+    # Frete da planilha (só usado no formato antigo; no novo já está no Custo Final)
+    frete_col = _pick_col(df, "frete")
     if frete_col is not None:
         df["_frete"] = df[frete_col].map(br_to_float)
     else:
         df["_frete"] = None
-    dims = df["dimensões"].map(parse_dimensoes_planilha)
-    df["_largura"] = [d[0] for d in dims]
-    df["_altura"] = [d[1] for d in dims]
-    df["_colunas"] = [d[2] for d in dims]
-    tubs = df["tipo tubete"].map(parse_tipo_tubete)
-    df["_tub_diam"] = [t[0] for t in tubs]
-    df["_tub_pol"] = [t[1] for t in tubs]
+
+    dim_col = _pick_col(df, "dimensões", "dimensoes")
+    if dim_col is not None:
+        dims = df[dim_col].map(parse_dimensoes_planilha)
+        df["_largura"] = [d[0] for d in dims]
+        df["_altura"] = [d[1] for d in dims]
+        df["_colunas"] = [d[2] for d in dims]
+    else:
+        df["_largura"] = df[_pick_col(df, "Largura")].map(br_to_float) if _pick_col(df, "Largura") else None
+        df["_altura"] = df[_pick_col(df, "Altura")].map(br_to_float) if _pick_col(df, "Altura") else None
+        df["_colunas"] = 1
+
+    tub_col = _pick_col(df, "tipo tubete")
+    if tub_col is not None:
+        tubs = df[tub_col].map(parse_tipo_tubete)
+        df["_tub_diam"] = [t[0] for t in tubs]
+        df["_tub_pol"] = [t[1] for t in tubs]
+    else:
+        df["_tub_diam"] = None
+        df["_tub_pol"] = None
+
     return df
 
 
 def match_planilha_etiqueta(planilha: pd.DataFrame, nf_key: str | None, qtd_nf: float | None, descricao: str) -> pd.Series | None:
     if planilha is None or planilha.empty or not nf_key:
         return None
-    cands = planilha[planilha["_nf_key"] == nf_key]
+
+    # Planilha de etiquetas costuma listar NF sem o prefixo RT (ex.: 1130 ↔ RT1130).
+    dig = nf_digits(nf_key)
+    nf_candidates = [nf_key]
+    if dig and dig != nf_key:
+        nf_candidates.append(dig)
+    if dig and f"RT{dig}" != nf_key:
+        nf_candidates.append(f"RT{dig}")
+
+    cands = planilha[planilha["_nf_key"].isin(nf_candidates)]
     if cands.empty:
         return None
 
     desc = str(descricao or "").upper().replace(",", ".")
+    # cm na descrição (ex.: 10cm x 5cm) → mm
+    desc_norm = re.sub(
+        r"(\d+(?:[.,]\d+)?)\s*CM",
+        lambda m: str(float(m.group(1).replace(",", ".")) * 10).rstrip("0").rstrip("."),
+        desc,
+    )
     best_idx = None
     best_score = -1
     for idx, row in cands.iterrows():
@@ -595,7 +678,6 @@ def match_planilha_etiqueta(planilha: pd.DataFrame, nf_key: str | None, qtd_nf: 
             score += 5
         L, A = row["_largura"], row["_altura"]
         if L is not None and A is not None:
-            # tenta mm e cm na descrição
             variants = [
                 (L, A),
                 (L / 10.0, A / 10.0) if max(L, A) >= 20 else (L, A),
@@ -603,7 +685,9 @@ def match_planilha_etiqueta(planilha: pd.DataFrame, nf_key: str | None, qtd_nf: 
             for lw, ah in variants:
                 lw_s = f"{lw:g}"
                 ah_s = f"{ah:g}"
-                if re.search(rf"{re.escape(lw_s)}\s*[X×]\s*{re.escape(ah_s)}", desc):
+                if re.search(rf"{re.escape(lw_s)}\s*[X×]\s*{re.escape(ah_s)}", desc) or re.search(
+                    rf"{re.escape(lw_s)}\s*[X×]\s*{re.escape(ah_s)}", desc_norm
+                ):
                     score += 3
                     break
         if score > best_score:
@@ -627,21 +711,61 @@ def match_planilha_etiqueta(planilha: pd.DataFrame, nf_key: str | None, qtd_nf: 
 
 
 def detalhe_from_planilha(row: pd.Series) -> dict:
-    custo_sub, mat_label = resolve_custo_substrato(row.get("Material"), row.get("_custo_mat"))
-    if mat_label is None:
-        mat_label = None if pd.isna(row.get("Material")) else str(row.get("Material"))
-    custo_tub, tub_label = lookup_custo_tubete(row.get("_tub_diam"), row.get("_tub_pol"))
-    if tub_label is None and not pd.isna(row.get("tipo tubete")):
-        tub_label = str(row.get("tipo tubete"))
+    mat_raw = row.get("Material")
+    mat_label = None if pd.isna(mat_raw) else str(mat_raw)
+    tub_raw = row.get("tipo tubete") if "tipo tubete" in row.index else None
+    tub_label = None if tub_raw is None or (isinstance(tub_raw, float) and pd.isna(tub_raw)) else str(tub_raw)
+    qtd_rolos = row.get("_qtd_tubetes")
+    custo_final = row.get("_custo_final")
 
-    # Preferir metragem (regra do usuário); se o nº de etiquetas da planilha
-    # divergir pouco, ainda usamos o informado quando a metragem não fechar.
+    # Formato novo: Custo Final (X) já é o custo unitário por rolo completo
+    # (embalagem + impostos + tubete + frete). Não recalcula nada.
+    if custo_final is not None and not (isinstance(custo_final, float) and pd.isna(custo_final)):
+        custo_rolo = float(custo_final)
+        custo_total = None
+        if qtd_rolos is not None and not (isinstance(qtd_rolos, float) and pd.isna(qtd_rolos)):
+            custo_total = custo_rolo * float(qtd_rolos)
+        return {
+            "material": mat_label,
+            "largura_mm": row.get("_largura"),
+            "altura_mm": row.get("_altura"),
+            "colunas": int(row.get("_colunas") or 1),
+            "tubete_pol": row.get("_tub_pol"),
+            "tubete_label": tub_label,
+            "nr_etiquetas_rolo": row.get("_nr_etiquetas"),
+            "area_etiqueta_m2": None,
+            "area_rolo_m2": None,
+            "custo_substrato_m2": row.get("_custo_mat"),
+            "custo_tubete": None,
+            "custo_embalagem_rolo": row.get("_custo_emb_rolo"),
+            "custo_material_rolo": None,
+            "custo_rolo": custo_rolo,
+            "qtd_tubetes": qtd_rolos,
+            "custo_total_planilha": custo_total,
+            "qtd_rolo_raw": None,
+            "qtd_rolo_tipo": None,
+            "completo": True,
+            "pendencias": "",
+            "fonte": "planilha_custo_final",
+            # Frete/imposto já embutidos no Custo Final — não descontar de novo
+            "frete_real": 0.0,
+            "custo_inclui_frete_imposto": True,
+        }
+
+    # Formato antigo (legado): calcula área/tubete/embalagem
+    custo_sub, mat_resolved = resolve_custo_substrato(mat_raw, row.get("_custo_mat"))
+    if mat_resolved is not None:
+        mat_label = mat_resolved
+    custo_tub, tub_resolved = lookup_custo_tubete(row.get("_tub_diam"), row.get("_tub_pol"))
+    if tub_resolved is not None:
+        tub_label = tub_resolved
+
     detalhe = calc_custo_etiqueta(
         largura_mm=row.get("_largura"),
         altura_mm=row.get("_altura"),
         colunas=int(row.get("_colunas") or 1),
         metragem_total_m=row.get("_metragem"),
-        qtd_tubetes=row.get("_qtd_tubetes"),
+        qtd_tubetes=qtd_rolos,
         nr_etiquetas_informado=row.get("_nr_etiquetas"),
         custo_substrato_m2=custo_sub,
         custo_tubete=custo_tub,
@@ -651,7 +775,7 @@ def detalhe_from_planilha(row: pd.Series) -> dict:
     )
     detalhe["tubete_pol"] = row.get("_tub_pol")
     detalhe["fonte"] = "planilha_jul26"
-    # Frete da planilha de etiquetas: em branco = 0 (não usar 3%)
+    detalhe["custo_inclui_frete_imposto"] = False
     frete_real = row.get("_frete")
     if frete_real is not None and not (isinstance(frete_real, float) and pd.isna(frete_real)):
         detalhe["frete_real"] = float(frete_real)
@@ -882,8 +1006,11 @@ def calcular_relatorio(
     segmento = load_segmento(path)
 
     if etiqueta_cost_sheet is None:
-        candidate = path.parent / DEFAULT_ETIQUETA_COST_SHEET
-        etiqueta_cost_sheet = candidate if candidate.exists() else None
+        for name in ETIQUETA_COST_SHEET_CANDIDATES:
+            candidate = path.parent / name
+            if candidate.exists():
+                etiqueta_cost_sheet = candidate
+                break
     planilha = load_planilha_etiquetas(etiqueta_cost_sheet)
     if not planilha.empty:
         planilha["_used"] = False
@@ -953,9 +1080,12 @@ def calcular_relatorio(
                 if not detalhe["completo"]:
                     pendencias.append(detalhe["pendencias"] or "etiqueta_planilha")
                 else:
-                    # Nº de rolos = nº de tubetes (planilha). Custo unitário = custo do rolo.
+                    # Custo unitário = Custo Final (por rolo) ou custo do rolo legado.
                     custo_unit = detalhe["custo_rolo"]
-                    base_custo = "planilha_jul26"
+                    if detalhe.get("custo_inclui_frete_imposto"):
+                        base_custo = "planilha_jul26_custo_final"
+                    else:
+                        base_custo = "planilha_jul26"
                     # Se a NF veio em etiquetas (ex.: 270000) e não em rolos,
                     # o total segue a planilha (rolos/tubetes).
                     if (
@@ -967,7 +1097,11 @@ def calcular_relatorio(
                         # mantendo a quantidade da NF no relatório
                         if qtd > 0 and detalhe.get("custo_total_planilha") is not None:
                             custo_unit = float(detalhe["custo_total_planilha"]) / qtd
-                            base_custo = "planilha_jul26_rateio"
+                            base_custo = (
+                                "planilha_jul26_custo_final_rateio"
+                                if detalhe.get("custo_inclui_frete_imposto")
+                                else "planilha_jul26_rateio"
+                            )
             else:
                 detalhe = parse_etiqueta(r.get("Descrição"))
                 if not detalhe["completo"]:
@@ -1004,7 +1138,13 @@ def calcular_relatorio(
 
         # Frete/custo/venda da planilha ribbon (inclui kits tipo KITFRANCAP listados nela)
         frete_real = detalhe.get("frete_real")
-        base_frete_src = "planilha_etiqueta" if frete_real is not None else None
+        custo_inclui_tudo = bool(detalhe.get("custo_inclui_frete_imposto"))
+        if custo_inclui_tudo:
+            # Custo Final já embute frete — marca base e zera frete avulso
+            base_frete_src = "incluso_custo_final"
+            frete_real = 0.0
+        else:
+            base_frete_src = "planilha_etiqueta" if frete_real is not None else None
         custo_ja_etiqueta = bool(
             base_custo and str(base_custo).startswith("planilha_jul26")
         )
@@ -1016,9 +1156,15 @@ def calcular_relatorio(
             venda,
         )
         if match_rib is not None:
-            # Etiqueta já custeada pela planilha jul/26: só cede a kit com código casado
-            # (ex. KITFRANCAP). Evita herdar custo/frete do ribbon irmão na mesma NF.
-            sobrescreve = (not custo_ja_etiqueta) or bool(match_rib.get("code_matched"))
+            # Etiqueta com Custo Final da planilha: não cede a ribbon/custo externo
+            # (frete/imposto já estão embutidos). Kits listados na planilha de
+            # etiquetas usam a coluna X.
+            if custo_inclui_tudo:
+                sobrescreve = False
+            else:
+                # Etiqueta já custeada pela planilha jul/26: só cede a kit com código casado
+                # (ex. KITFRANCAP). Evita herdar custo/frete do ribbon irmão na mesma NF.
+                sobrescreve = (not custo_ja_etiqueta) or bool(match_rib.get("code_matched"))
             if sobrescreve:
                 frete_real = match_rib["frete"]
                 base_frete_src = "planilha_ribbon"
@@ -1084,9 +1230,11 @@ def calcular_relatorio(
             frete_valor = None
 
         if completo:
-            # Para planilha com qtd de tubetes alinhada à NF: custo_rolo * qtd
+            # Para planilha com qtd de tubetes/rolos alinhada à NF: custo_rolo * qtd
             if (
-                base_custo == "planilha_jul26"
+                base_custo
+                and str(base_custo).startswith("planilha_jul26")
+                and "rateio" not in str(base_custo)
                 and detalhe.get("custo_total_planilha") is not None
                 and detalhe.get("qtd_tubetes") is not None
                 and qtd is not None
@@ -1103,17 +1251,42 @@ def calcular_relatorio(
                 custo_total = float(match_rib["custo_total"])
             else:
                 custo_total = custo_unit * qtd
-            frete = frete_valor if frete_valor is not None else 0.0
-            imposto = venda * 0.092
-            # % lucro = (venda - custo - frete - imposto) / custo  (custo do produto, sem frete)
-            venda_liquida = venda - custo_total - frete - imposto
+
+            # Etiquetas com Custo Final: (venda − custo) / custo
+            # (frete e imposto 9,2% já estão no custo — não descontar de novo)
+            usa_custo_final = bool(
+                detalhe.get("custo_inclui_frete_imposto")
+                and base_custo
+                and str(base_custo).startswith("planilha_jul26")
+            )
+            if usa_custo_final:
+                frete = 0.0
+                imposto = 0.0
+                base_frete = "incluso_custo_final"
+                venda_liquida = venda - custo_total
+            else:
+                frete = frete_valor if frete_valor is not None else 0.0
+                imposto = venda * 0.092
+                # % lucro = (venda - custo - frete - imposto) / custo
+                venda_liquida = venda - custo_total - frete - imposto
             perc_lucro = (venda_liquida / custo_total) if custo_total else None
             status = STATUS_OK
             pendencia_txt = ""
         else:
             custo_total = None
-            frete = frete_valor
-            imposto = venda * 0.092 if venda is not None else None
+            usa_custo_final = bool(
+                detalhe.get("custo_inclui_frete_imposto")
+                and base_custo
+                and str(base_custo).startswith("planilha_jul26")
+            )
+            if usa_custo_final:
+                frete = 0.0
+                imposto = 0.0
+                if base_frete is None:
+                    base_frete = "incluso_custo_final"
+            else:
+                frete = frete_valor
+                imposto = venda * 0.092 if venda is not None else None
             venda_liquida = None
             perc_lucro = None
             status = STATUS_INCOMPLETO
@@ -1233,6 +1406,11 @@ def main() -> None:
     etiq_path = Path(args.etiquetas)
     if not etiq_path.exists():
         etiq_path = None
+        for name in ETIQUETA_COST_SHEET_CANDIDATES:
+            cand = input_path.parent / name
+            if cand.exists():
+                etiq_path = cand
+                break
     frete_path = Path(args.frete_ribbon)
     if not frete_path.exists():
         frete_path = None

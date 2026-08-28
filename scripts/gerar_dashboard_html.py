@@ -2032,7 +2032,9 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           <td title="${{
             (r.fb || '').startsWith('planilha')
               ? 'Frete da tabela enviada'
-              : (r.fb === 'sem_tabela' ? 'Item sem frete na tabela (R$ 0)' : (r.fb || ''))
+              : (r.fb === 'sem_tabela' ? 'Item sem frete na tabela (R$ 0)'
+                : (r.fb === 'incluso_custo_final' ? 'Frete e imposto já inclusos no Custo Final da planilha de etiquetas'
+                : (r.fb || '')))
           }}">${{money(r.f)}}</td>
           <td class="${{(r.l ?? 0) < 0 ? 'neg' : ''}}">${{money(r.l)}}</td>
           <td class="${{(r.p ?? 0) < 0 ? 'neg' : 'pos'}}">${{pct(r.p)}}</td>
