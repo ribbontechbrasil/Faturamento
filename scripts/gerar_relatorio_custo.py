@@ -678,6 +678,8 @@ def match_planilha_etiqueta(planilha: pd.DataFrame, nf_key: str | None, qtd_nf: 
         lambda m: str(float(m.group(1).replace(",", ".")) * 10).rstrip("0").rstrip("."),
         desc,
     )
+    qtd_desc, qtd_desc_tipo = detect_qtd_rolo(descricao)
+    tubete_desc = detect_tubete(descricao)
     best_idx = None
     best_score = -1
     for idx, row in cands.iterrows():
@@ -701,6 +703,31 @@ def match_planilha_etiqueta(planilha: pd.DataFrame, nf_key: str | None, qtd_nf: 
                 ):
                     score += 3
                     break
+        # Distingue duas linhas 100x70 na mesma NF (ex.: 554/tubete 1" vs 1285/tubete 3")
+        nr_etiq = row["_nr_etiquetas"]
+        if nr_etiq is not None and not (isinstance(nr_etiq, float) and pd.isna(nr_etiq)):
+            if (
+                qtd_desc_tipo == "un"
+                and qtd_desc is not None
+                and abs(float(qtd_desc) - float(nr_etiq)) < 0.51
+            ):
+                score += 6
+            else:
+                nr_txt = (
+                    str(int(round(nr_etiq)))
+                    if abs(float(nr_etiq) - round(float(nr_etiq))) < 0.01
+                    else f"{nr_etiq:g}"
+                )
+                if re.search(rf"(?<!\d){re.escape(nr_txt)}(?!\d)", desc):
+                    score += 6
+        tub_pol = row["_tub_pol"]
+        if (
+            tubete_desc is not None
+            and tub_pol is not None
+            and not (isinstance(tub_pol, float) and pd.isna(tub_pol))
+            and abs(float(tubete_desc) - float(tub_pol)) < 0.05
+        ):
+            score += 4
         if score > best_score:
             best_score = score
             best_idx = idx
