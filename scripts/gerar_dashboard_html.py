@@ -1123,6 +1123,21 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       return nfDigitsOf(raw);
     }}
 
+    function codeSearchMatch(cod, busca) {{
+      const b = String(busca || '').trim().toLowerCase();
+      const c = String(cod || '').toLowerCase();
+      if (!b || !c) return false;
+      if (c.includes(b) || b.includes(c)) return true;
+      const bd = b.replace(/\\D/g, '');
+      const cd = c.replace(/\\D/g, '');
+      if (!bd || !cd) return false;
+      if (bd.replace(/^0+/, '') === cd.replace(/^0+/, '')) return true;
+      // 100200006 ↔ 10020006 (zeros extras)
+      const bn = bd.replace(/0/g, '');
+      const cn = cd.replace(/0/g, '');
+      return !!(bn && bn === cn && Math.abs(bd.length - cd.length) <= 2 && Math.min(bd.length, cd.length) >= 6);
+    }}
+
     function applyDespesaFilters(filters) {{
       const f = filters || readFilters();
       return DESPESAS.filter(d => {{
@@ -1213,6 +1228,8 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           const nfDig = nfDigitsFromSearch(f.busca);
           if (nfDig) {{
             if (nfDigitsOf(r.n) !== nfDig) return false;
+          }} else if (codeSearchMatch(r.cod, f.busca)) {{
+            // ok — código com zeros extras (100200006 ↔ 10020006)
           }} else {{
             const blob = `${{r.c || ''}} ${{r.cod || ''}} ${{r.desc || ''}} ${{r.n || ''}}`.toLowerCase();
             if (!blob.includes(f.busca)) return false;

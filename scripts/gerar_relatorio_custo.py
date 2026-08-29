@@ -127,10 +127,20 @@ def codes_compatible(a: str | None, b: str | None) -> bool:
     stem_b = re.sub(r"(TDW|I)$", "", b)
     if stem_a and stem_a == stem_b:
         return True
-    # 100200006 ↔ 10020006 (zeros extras)
+    # 100200006 ↔ 10020006 (zeros extras no código numérico)
     da, db = re.sub(r"\D", "", a), re.sub(r"\D", "", b)
-    if da and db and da.lstrip("0") == db.lstrip("0") and da.lstrip("0"):
-        return True
+    if da and db:
+        if da.lstrip("0") == db.lstrip("0") and da.lstrip("0"):
+            return True
+        # Zeros internos extras (ex.: 100200006 vs 10020006 → 126 == 126)
+        na, nb = re.sub(r"0", "", da), re.sub(r"0", "", db)
+        if (
+            na
+            and na == nb
+            and abs(len(da) - len(db)) <= 2
+            and min(len(da), len(db)) >= 6
+        ):
+            return True
     return False
 
 
