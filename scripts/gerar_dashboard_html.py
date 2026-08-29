@@ -72,7 +72,7 @@ def build_rows(df: pd.DataFrame) -> list[dict]:
                 "cod": None if pd.isna(r.get("Código")) else str(r.get("Código")),
                 "desc": None
                 if pd.isna(r.get("Descrição"))
-                else str(r.get("Descrição"))[:100],
+                else str(r.get("Descrição"))[:200],
                 "seg": None if pd.isna(r.get("Segmento")) else str(r.get("Segmento")),
                 "mat": None if pd.isna(r.get("Material")) else str(r.get("Material")),
                 "tub": None if pd.isna(r.get("Tubete")) else str(r.get("Tubete")),
@@ -292,6 +292,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
     .pos {{ color: var(--good); font-weight: 600; }}
     .table-wrap {{ overflow: auto; max-height: 420px; }}
     .table-wrap.tall-list {{ max-height: 560px; }}
+    td.desc-etiqueta {{ max-width: 28rem; word-break: break-word; }}
     .cost-input {{
       width: 110px;
       border: 1px solid rgba(196,92,38,.45);
@@ -735,7 +736,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
               <th>Cliente</th>
               <th>NF</th>
               <th>Tipo</th>
-              <th>Material / descrição</th>
+              <th>Descrição</th>
               <th>Custo/rolo</th>
               <th>Custo total</th>
               <th>Venda</th>
@@ -1832,15 +1833,13 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       tb.innerHTML = pageRows.map(r => {{
         const tipo = tipoEtiquetaOf(r.mat);
         const tipoLabel = tipo === 'Termico' ? 'Térmico' : tipo;
-        const matDesc = r.mat && r.mat !== tipo && r.mat !== 'Bopp' && r.mat !== 'Couche' && r.mat !== 'Termico'
-          ? r.mat
-          : (r.desc || '—');
+        const desc = r.desc || '—';
         return `
         <tr class="item-row" data-cliente="${{(r.c || '').replaceAll('"', '&quot;')}}" data-nf="${{(r.n || '').replaceAll('"', '&quot;')}}" data-tipo="${{tipo}}">
           <td>${{r.c || '—'}}</td>
           <td>${{r.n || '—'}}</td>
           <td>${{tipoLabel}}</td>
-          <td title="${{(r.desc || '').replaceAll('"', '&quot;')}}">${{matDesc}}</td>
+          <td class="desc-etiqueta" title="${{(r.desc || '').replaceAll('"', '&quot;')}}">${{desc}}</td>
           <td><strong>${{money(r.cr)}}</strong></td>
           <td>${{money(r.ct)}}</td>
           <td>${{money(r.v)}}</td>
