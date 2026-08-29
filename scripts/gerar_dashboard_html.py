@@ -517,8 +517,8 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
             <option value="na">Sem % (incompleto)</option>
           </select>
         </label>
-        <label>Busca cliente / código / descrição
-          <input type="search" id="fBusca" placeholder="Ex.: Ribbon, MG, 300443..." />
+        <label>Busca NF / cliente / código / descrição
+          <input type="search" id="fBusca" placeholder="Ex.: 1162, FRIVASA, 300443..." />
         </label>
         <label>Qtd. clientes na tabela
           <select id="fTopN">
@@ -1084,7 +1084,8 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       const months = uniqueSortedDesc([...monthsFat, ...monthsDesp]);
       const cats = uniqueSorted(DESPESAS.map(d => d.cat));
       fillCheckboxes('fSegmentoBox', segs, 'seg');
-      fillCheckboxes('fMesBox', months, 'mes', null, fmtMonthLabel);
+      // Abre no mês mais recente (ex.: jul/2026) para achar NFs da planilha atual.
+      fillCheckboxes('fMesBox', months, 'mes', months.length ? new Set([months[0]]) : null, fmtMonthLabel);
       fillCheckboxes('fDespCatBox', cats, 'despcat');
       fillSelect('fCliente', uniqueSorted(usable.map(r => r.c)), 'Todos');
       fillSelect('fUF', uniqueSorted(usable.map(r => r.uf)), 'Todas');
@@ -1110,6 +1111,33 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       }};
     }}
 
+    function nfDigitsOf(value) {{
+      const t = String(value || '').trim().toLowerCase().replace(/^rt/, '').replace(/\\D/g, '');
+      return t.replace(/^0+/, '') || '';
+    }}
+
+    function nfDigitsFromSearch(busca) {{
+      const raw = String(busca || '').trim().toLowerCase().replace(/\\s/g, '');
+      if (!raw) return '';
+      if (!/^rt?0*\\d{{3,6}}$/.test(raw)) return '';
+      return nfDigitsOf(raw);
+    }}
+
+    function codeSearchMatch(cod, busca) {{
+      const b = String(busca || '').trim().toLowerCase();
+      const c = String(cod || '').toLowerCase();
+      if (!b || !c) return false;
+      if (c.includes(b) || b.includes(c)) return true;
+      const bd = b.replace(/\\D/g, '');
+      const cd = c.replace(/\\D/g, '');
+      if (!bd || !cd) return false;
+      if (bd.replace(/^0+/, '') === cd.replace(/^0+/, '')) return true;
+      // 100200006 ↔ 10020006 (zeros extras)
+      const bn = bd.replace(/0/g, '');
+      const cn = cd.replace(/0/g, '');
+      return !!(bn && bn === cn && Math.abs(bd.length - cd.length) <= 2 && Math.min(bd.length, cd.length) >= 6);
+    }}
+
     function applyDespesaFilters(filters) {{
       const f = filters || readFilters();
       return DESPESAS.filter(d => {{
@@ -1117,7 +1145,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         if (f.despCats && f.despCats.length && !f.despCats.includes(d.cat)) return false;
         if (f.inicio && d.d && d.d < f.inicio) return false;
         if (f.fim && d.d && d.d > f.fim) return false;
-        if (f.busca) {{
+        if (f.busca && !nfDigitsFromSearch(f.busca)) {{
           const blob = `${{d.f || ''}} ${{d.h || ''}} ${{d.cat || ''}} ${{d.sub || ''}}`.toLowerCase();
           if (!blob.includes(f.busca)) return false;
         }}
@@ -1197,8 +1225,15 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         if (!inLucroFaixa(r.p, f.lucroFaixa)) return false;
         if (f.meses && f.meses.length && !f.meses.includes(ymOf(r.d))) return false;
         if (f.busca) {{
-          const blob = `${{r.c || ''}} ${{r.cod || ''}} ${{r.desc || ''}} ${{r.n || ''}}`.toLowerCase();
-          if (!blob.includes(f.busca)) return false;
+          const nfDig = nfDigitsFromSearch(f.busca);
+          if (nfDig) {{
+            if (nfDigitsOf(r.n) !== nfDig) return false;
+          }} else if (codeSearchMatch(r.cod, f.busca)) {{
+            // ok — código com zeros extras (100200006 ↔ 10020006)
+          }} else {{
+            const blob = `${{r.c || ''}} ${{r.cod || ''}} ${{r.desc || ''}} ${{r.n || ''}}`.toLowerCase();
+            if (!blob.includes(f.busca)) return false;
+          }}
         }}
         return true;
       }});
@@ -1945,7 +1980,13 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
     }}
 
     function sortedItens(rows) {{
+      const nfDig = nfDigitsFromSearch((document.getElementById('fBusca').value || '').trim().toLowerCase());
       return [...rows].sort((a,b) => {{
+        if (nfDig) {{
+          const aNf = nfDigitsOf(a.n) === nfDig;
+          const bNf = nfDigitsOf(b.n) === nfDig;
+          if (aNf !== bNf) return aNf ? -1 : 1;
+        }}
         const rank = (st) => st === 'inc' ? 0 : st === 'manual' ? 1 : 2;
         const ra = rank(a.st), rb = rank(b.st);
         if (ra !== rb) return ra - rb;
