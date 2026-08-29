@@ -641,6 +641,7 @@ def load_planilha_etiquetas(path: Path | None) -> pd.DataFrame:
         df["_tub_diam"] = None
         df["_tub_pol"] = None
 
+    df["_used"] = False
     return df
 
 
