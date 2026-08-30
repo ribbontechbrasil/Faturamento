@@ -52,6 +52,12 @@ CUSTO_TUBETE_POR_POL = {
 SITUACOES_EXCLUIDAS = {"Cancelada", "Rejeitada", "Denegada"}
 # NFs removidas do relatório a pedido (ex.: itens sem regra de custo)
 NFS_EXCLUIDAS = {"3563", "3565", "3566"}
+# Custo total (R$) informado no lugar de Custo Final × nr. rolos.
+# Chave: (dígitos da NF, largura_mm, altura_mm, colunas)
+CUSTO_TOTAL_ETIQUETA_OVERRIDE = {
+    # NF 1162 · BOPP fosco 50×200×2: 2.868,85 em vez de 4.749,05
+    ("1162", 50.0, 200.0, 2): 2868.85,
+}
 SEGMENTOS_ETIQUETA = {"Etiqueta Branca", "Etiqueta Colorida"}
 SEGMENTOS_LOOKUP = {"Ribbon", "Suprimentos"}
 
@@ -748,6 +754,26 @@ def match_planilha_etiqueta(planilha: pd.DataFrame, nf_key: str | None, qtd_nf: 
     return planilha.loc[best_idx]
 
 
+def lookup_custo_total_override(row: pd.Series) -> float | None:
+    """Custo total informado para um item da planilha de etiquetas (se houver)."""
+    nf = nf_digits(row.get("_nf_key"))
+    largura = row.get("_largura")
+    altura = row.get("_altura")
+    colunas = row.get("_colunas")
+    if nf is None or largura is None or altura is None:
+        return None
+    if isinstance(largura, float) and pd.isna(largura):
+        return None
+    if isinstance(altura, float) and pd.isna(altura):
+        return None
+    try:
+        cols = int(colunas or 1)
+    except (TypeError, ValueError):
+        cols = 1
+    key = (str(nf), float(largura), float(altura), cols)
+    return CUSTO_TOTAL_ETIQUETA_OVERRIDE.get(key)
+
+
 def detalhe_from_planilha(row: pd.Series) -> dict:
     mat_raw = row.get("Material")
     mat_label = None if pd.isna(mat_raw) else str(mat_raw)
@@ -763,6 +789,16 @@ def detalhe_from_planilha(row: pd.Series) -> dict:
         custo_total = None
         if qtd_rolos is not None and not (isinstance(qtd_rolos, float) and pd.isna(qtd_rolos)):
             custo_total = custo_rolo * float(qtd_rolos)
+        ajuste = lookup_custo_total_override(row)
+        if ajuste is not None:
+            custo_total = float(ajuste)
+            qtd_ok = (
+                qtd_rolos is not None
+                and not (isinstance(qtd_rolos, float) and pd.isna(qtd_rolos))
+                and float(qtd_rolos) > 0
+            )
+            if qtd_ok:
+                custo_rolo = custo_total / float(qtd_rolos)
         return {
             "material": mat_label,
             "largura_mm": row.get("_largura"),
