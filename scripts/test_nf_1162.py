@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Garante custos da NF 1162 (FRIVASA), com 50x200x2 em R$ 2.868,85 (48 rolos)."""
+"""Garante custos da NF 1162 (FRIVASA).
+
+- 102x197: R$ 8.600,81 (área da própria linha, não 5.519,76)
+- 50x235x1: 60 rolos
+- 50x200x2: 48 rolos · R$ 2.868,85
+- 86x165: R$ 695,78 (área da própria linha, não 184,21)
+"""
 
 from pathlib import Path
 
@@ -16,21 +22,20 @@ PLANILHA = ROOT / "Planilha_calculo_custo_etiquetas_jul26.xlsx"
 ALT_PLANILHA = ROOT / "Planilha para cálculo de custo de etiquetas - jul 26.xlsx"
 
 # Itens da NF RT001162: qtd na NF × Custo Final (coluna X)
-# 50x200x2: 48 rolos na planilha (não 60) → total R$ 2.868,85 (não 4.749,05)
 ITENS_1162 = [
     (
         152.0,
         'ETIQUETA ESPECIAL COM CÓDIGO DE BARRA 102X197 ROLO COM 500 TUBETE 3"',
-        36.3142,
-        None,
-        None,
+        56.5842,
+        8600.81,
+        152.0,
     ),
     (
         60.0,
         "ETIQUETA BOPP FOSCO 50X235X1 ROLO C/ 500 TUBETE 3'",
         30.8740,
         None,
-        None,
+        60.0,
     ),
     (
         60.0,  # quantidade na NF; planilha tem 48 rolos
@@ -42,9 +47,9 @@ ITENS_1162 = [
     (
         8.0,
         'ROTULO BOPP ADESIVO 86x165 mm 3" C/1000 - FRIVASA',
-        23.0258,
-        None,
-        None,
+        86.9725,
+        695.78,
+        8.0,
     ),
 ]
 
@@ -91,7 +96,9 @@ def test_nf_1162_casa_custo_final():
                 detalhe["custo_total_planilha"],
                 custo_total,
             )
-            # Garante que NÃO ficou o valor antigo (4.749,05 com 60 rolos)
+            # Não voltar aos totais da área da linha seguinte / 60 rolos na 50x200x2
+            assert not approx(float(detalhe["custo_total_planilha"]), 5519.76, tol=0.05), desc
+            assert not approx(float(detalhe["custo_total_planilha"]), 184.21, tol=0.05), desc
             assert not approx(float(detalhe["custo_total_planilha"]), 4749.05, tol=0.05), desc
         matched.append(desc)
     assert len(matched) == 4
@@ -100,4 +107,4 @@ def test_nf_1162_casa_custo_final():
 if __name__ == "__main__":
     test_norm_nf_rt_1162()
     test_nf_1162_casa_custo_final()
-    print("OK: NF 1162 · 50x200x2 = 48 rolos · R$ 2.868,85")
+    print("OK: NF 1162 · 102x197 R$ 8.600,81 · 50x235 60 rolos · 86x165 R$ 695,78")
