@@ -51,7 +51,8 @@ CUSTO_TUBETE_POR_POL = {
 
 SITUACOES_EXCLUIDAS = {"Cancelada", "Rejeitada", "Denegada"}
 # NFs removidas do relatório a pedido (ex.: itens sem regra de custo)
-NFS_EXCLUIDAS = {"3563", "3565", "3566"}
+# 3565 (LONAX, etiqueta 13 mm azul) volta a entrar: custo informado R$ 63,88
+NFS_EXCLUIDAS = {"3563", "3566"}
 SEGMENTOS_ETIQUETA = {"Etiqueta Branca", "Etiqueta Colorida"}
 SEGMENTOS_LOOKUP = {"Ribbon", "Suprimentos"}
 

@@ -2,8 +2,8 @@
 """Garante custos da NF 1162 (FRIVASA).
 
 - 102x197: R$ 8.600,81 (área da própria linha, não 5.519,76)
-- 50x235x1: 60 rolos
-- 50x200x2: 48 rolos · R$ 2.868,85
+- 50x235x1: 60 rolos · R$ 2.141,64 (não 1.852,44)
+- 50x200x2: 60 rolos · R$ 3.546,96 (não 2.868,85)
 - 86x165: R$ 695,78 (área da própria linha, não 184,21)
 """
 
@@ -33,16 +33,16 @@ ITENS_1162 = [
     (
         60.0,
         "ETIQUETA BOPP FOSCO 50X235X1 ROLO C/ 500 TUBETE 3'",
-        30.8740,
-        None,
+        35.694,
+        2141.64,
         60.0,
     ),
     (
-        60.0,  # quantidade na NF; planilha tem 48 rolos
+        60.0,
         'ETIQUETA BOPP FOSCO 50X200X2 ROLO C/ 1000 TUBETE 3"',
-        59.7677,
-        2868.85,
-        48.0,
+        59.116,
+        3546.96,
+        60.0,
     ),
     (
         8.0,
@@ -96,10 +96,12 @@ def test_nf_1162_casa_custo_final():
                 detalhe["custo_total_planilha"],
                 custo_total,
             )
-            # Não voltar aos totais da área da linha seguinte / 60 rolos na 50x200x2
+            # Não voltar aos totais antigos
             assert not approx(float(detalhe["custo_total_planilha"]), 5519.76, tol=0.05), desc
             assert not approx(float(detalhe["custo_total_planilha"]), 184.21, tol=0.05), desc
             assert not approx(float(detalhe["custo_total_planilha"]), 4749.05, tol=0.05), desc
+            assert not approx(float(detalhe["custo_total_planilha"]), 1852.44, tol=0.05), desc
+            assert not approx(float(detalhe["custo_total_planilha"]), 2868.85, tol=0.05), desc
         matched.append(desc)
     assert len(matched) == 4
 
@@ -107,4 +109,4 @@ def test_nf_1162_casa_custo_final():
 if __name__ == "__main__":
     test_norm_nf_rt_1162()
     test_nf_1162_casa_custo_final()
-    print("OK: NF 1162 · 102x197 R$ 8.600,81 · 50x235 60 rolos · 86x165 R$ 695,78")
+    print("OK: NF 1162 · 50x235 R$ 2.141,64 · 50x200x2 R$ 3.546,96")
