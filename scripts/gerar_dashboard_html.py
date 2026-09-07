@@ -118,6 +118,12 @@ def build_despesa_rows(df: pd.DataFrame) -> list[dict]:
                 "v": None if pd.isna(r.get("Valor")) else round(float(r.get("Valor")), 2),
                 "cat": None if pd.isna(r.get("Categoria")) else str(r.get("Categoria")),
                 "sub": None if pd.isna(r.get("Subcategoria")) else str(r.get("Subcategoria")),
+                "tipo": (
+                    "investimento"
+                    if str(r.get("Tipo") or r.get("Categoria") or "").strip().lower()
+                    == "investimento"
+                    else "despesa"
+                ),
             }
         )
     return rows
@@ -149,6 +155,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       --teal-deep: #14545c;
       --copper: #c45c26;
       --good: #1f7a4c;
+      --info: #d4a017;
       --shadow: 0 18px 50px rgba(20,33,43,0.12);
       --radius: 16px;
     }}
@@ -192,6 +199,17 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
     .kpi.kpi-caixa {{
       background: rgba(255,255,255,.16);
       border-color: rgba(255,255,255,.28);
+    }}
+    .kpi.kpi-info {{
+      background: rgba(212,160,23,.18);
+      border-color: rgba(255,220,120,.35);
+    }}
+    .kpi-grid-info {{
+      margin-top: .7rem;
+      grid-template-columns: repeat(2, 1fr);
+    }}
+    @media (min-width: 900px) {{
+      .kpi-grid-info {{ grid-template-columns: repeat(2, 1fr); }}
     }}
     .kpi {{
       background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.14);
@@ -456,6 +474,10 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         <div class="kpi"><span>Resultado após despesas</span><strong id="kpiResult">—</strong><em id="kpiResultPct">—</em></div>
         <div class="kpi kpi-caixa"><span>Caixa</span><strong id="kpiCaixa">—</strong><em id="kpiCaixaPct">Acumulado desde jul/2026</em></div>
         <div class="kpi"><span>Itens filtrados</span><strong id="kpiItens">—</strong><em id="kpiBasePct">% sobre a venda</em></div>
+      </div>
+      <div class="kpi-grid kpi-grid-info">
+        <div class="kpi kpi-info"><span>Frete (informativo)</span><strong id="kpiFrete">—</strong><em id="kpiFretePct">Já incluso no custo · não reduz a venda líquida</em></div>
+        <div class="kpi kpi-info"><span>Investimento</span><strong id="kpiInv">—</strong><em id="kpiInvPct">Separado das despesas administrativas</em></div>
       </div>
     </header>
 
@@ -752,7 +774,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       <div class="section-head">
         <div>
           <h2>Despesas administrativas</h2>
-          <p>Pessoal, pró-labore, aluguel, empréstimos, utilidades e demais despesas do período filtrado.</p>
+          <p>Pessoal, pró-labore, aluguel, empréstimos e utilidades. Investimentos aparecem à parte e não entram no resultado operacional.</p>
         </div>
       </div>
       <div class="grid-2">
@@ -787,6 +809,28 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
             </tr>
           </thead>
           <tbody id="tblDespesas"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <div>
+          <h2>Investimentos</h2>
+          <p>Itens de capital (ex.: Flexometal). Não entram nas despesas administrativas nem no resultado operacional.</p>
+        </div>
+      </div>
+      <div class="panel table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Mês</th>
+              <th>Fornecedor</th>
+              <th>Histórico</th>
+              <th>Valor</th>
+            </tr>
+          </thead>
+          <tbody id="tblInvestimentos"></tbody>
         </table>
       </div>
     </section>
@@ -987,6 +1031,8 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
 
     const CAIXA_INICIO = '2026-07';
 
+    const isInvestimento = (d) => d.tipo === 'investimento' || d.cat === 'Investimento';
+
     function computeCaixaAcumulado() {{
       // Caixa da empresa: soma dos resultados após despesas a partir de jul/2026
       const liqByMonth = new Map();
@@ -995,21 +1041,25 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         if (!m || m < CAIXA_INICIO) continue;
         if (r.l != null) liqByMonth.set(m, (liqByMonth.get(m) || 0) + r.l);
       }}
-      const despByMonth = new Map();
+      const opexByMonth = new Map();
+      const invByMonth = new Map();
       for (const d of DESPESAS) {{
         const m = d.m;
         if (!m || m < CAIXA_INICIO) continue;
-        if (d.v != null) despByMonth.set(m, (despByMonth.get(m) || 0) + d.v);
+        if (d.v == null) continue;
+        if (isInvestimento(d)) invByMonth.set(m, (invByMonth.get(m) || 0) + d.v);
+        else opexByMonth.set(m, (opexByMonth.get(m) || 0) + d.v);
       }}
       const months = uniqueSorted([
         ...liqByMonth.keys(),
-        ...despByMonth.keys()
+        ...opexByMonth.keys(),
+        ...invByMonth.keys()
       ].filter(m => m >= CAIXA_INICIO));
       let caixa = 0;
       const serie = [];
       for (const m of months) {{
-        const resultadoMes = (liqByMonth.get(m) || 0) - (despByMonth.get(m) || 0);
-        caixa += resultadoMes;
+        const resultadoMes = (liqByMonth.get(m) || 0) - (opexByMonth.get(m) || 0);
+        caixa += resultadoMes - (invByMonth.get(m) || 0);
         serie.push({{ m, resultado: resultadoMes, caixa }});
       }}
       return {{ caixa, serie }};
@@ -1265,19 +1315,23 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
     }}
 
     function updateKpis(rows, despesas, filters) {{
-      let venda = 0, custo = 0, liq = 0, frete = 0, imposto = 0, ok = 0, manual = 0;
+      let venda = 0, custo = 0, liq = 0, freteInfo = 0, vendaFrete = 0, ok = 0, manual = 0;
       for (const r of rows) {{
         if (r.v != null) venda += r.v;
         if (r.ct != null) custo += r.ct;
         if (r.l != null) liq += r.l;
-        if (r.f != null) frete += r.f;
-        if (r.i != null) imposto += r.i;
+        if (r.fb === 'incluso_custo_informativo' && r.f != null) {{
+          freteInfo += r.f;
+          if (r.v != null) vendaFrete += r.v;
+        }}
         if (r.st === 'ok') ok += 1;
         if (r.st === 'manual') manual += 1;
       }}
-      let desp = 0;
+      let desp = 0, inv = 0;
       for (const d of despesas) {{
-        if (d.v != null) desp += d.v;
+        if (d.v == null) continue;
+        if (isInvestimento(d)) inv += d.v;
+        else desp += d.v;
       }}
       const resultado = liq - desp;
       const pctOfSales = (v) => (venda > 0 ? pct(v / venda) : '—');
@@ -1298,6 +1352,24 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       elResPct.textContent = pctOfSales(resultado);
       elResPct.style.color = resultado < 0 ? '#ffd0d0' : 'rgba(247,250,252,.82)';
 
+      const elFrete = document.getElementById('kpiFrete');
+      const elFretePct = document.getElementById('kpiFretePct');
+      if (elFrete) {{
+        elFrete.textContent = money(freteInfo);
+        const baseFrete = vendaFrete > 0 ? vendaFrete : venda;
+        elFretePct.textContent = freteInfo
+          ? `${{pct(freteInfo / baseFrete)}} do faturamento · já incluso no custo`
+          : 'Já incluso no custo · não reduz a venda líquida';
+      }}
+      const elInv = document.getElementById('kpiInv');
+      const elInvPct = document.getElementById('kpiInvPct');
+      if (elInv) {{
+        elInv.textContent = money(inv);
+        elInvPct.textContent = inv
+          ? `${{pctOfSales(inv)}} da venda · fora das despesas ADM`
+          : 'Separado das despesas administrativas';
+      }}
+
       const {{ caixa, serie }} = computeCaixaAcumulado();
       const elCaixa = document.getElementById('kpiCaixa');
       elCaixa.textContent = money(caixa);
@@ -1316,9 +1388,11 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
     }}
 
     function renderDespesas(despesas, filters) {{
+      const opex = despesas.filter(d => !isInvestimento(d));
+      const investimentos = despesas.filter(d => isInvestimento(d));
       const byCat = new Map();
       let total = 0;
-      for (const d of despesas) {{
+      for (const d of opex) {{
         const k = d.cat || 'Outros';
         byCat.set(k, (byCat.get(k) || 0) + (d.v || 0));
         total += (d.v || 0);
@@ -1367,7 +1441,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       const tbResumo = document.getElementById('tblDespResumo');
       // detalhe por categoria + subcategoria
       const bySub = new Map();
-      for (const d of despesas) {{
+      for (const d of opex) {{
         const key = `${{d.cat || 'Outros'}}||${{d.sub || ''}}`;
         bySub.set(key, (bySub.get(key) || 0) + (d.v || 0));
       }}
@@ -1388,7 +1462,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       `).join('') || `<tr><td colspan="4">Nenhuma despesa no filtro atual.</td></tr>`;
 
       const tb = document.getElementById('tblDespesas');
-      const detalhe = [...despesas].sort((a,b) => {{
+      const detalhe = [...opex].sort((a,b) => {{
         const ma = a.m || '';
         const mb = b.m || '';
         if (ma !== mb) return mb.localeCompare(ma);
@@ -1404,6 +1478,19 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           <td>${{money(d.v)}}</td>
         </tr>
       `).join('') || `<tr><td colspan="6">Nenhuma despesa no filtro atual.</td></tr>`;
+
+      const tbInv = document.getElementById('tblInvestimentos');
+      if (tbInv) {{
+        const invRows = [...investimentos].sort((a,b) => (b.v || 0) - (a.v || 0));
+        tbInv.innerHTML = invRows.map(d => `
+          <tr>
+            <td>${{d.m || '—'}}</td>
+            <td>${{d.f || '—'}}</td>
+            <td>${{d.h || '—'}}</td>
+            <td>${{money(d.v)}}</td>
+          </tr>
+        `).join('') || `<tr><td colspan="4">Nenhum investimento no filtro atual.</td></tr>`;
+      }}
     }}
 
     function statusLabel(st) {{
@@ -2074,7 +2161,8 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
               ? 'Frete da tabela enviada'
               : (r.fb === 'sem_tabela' ? 'Item sem frete na tabela (R$ 0)'
                 : (r.fb === 'incluso_custo_final' ? 'Frete e imposto já inclusos no Custo Final da planilha de etiquetas'
-                : (r.fb || '')))
+                : (r.fb === 'incluso_custo_informativo' ? 'Frete já incluso no custo — valor só para acompanhamento'
+                : (r.fb || ''))))
           }}">${{money(r.f)}}</td>
           <td class="${{(r.l ?? 0) < 0 ? 'neg' : ''}}">${{money(r.l)}}</td>
           <td class="${{(r.p ?? 0) < 0 ? 'neg' : 'pos'}}">${{pct(r.p)}}</td>
@@ -2341,29 +2429,48 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
 
 
 def load_despesas(path: Path | None = None) -> list[dict]:
-    candidates = []
+    from processar_despesas import competencia_from_filename, processar
+
+    root = Path(__file__).resolve().parents[1]
+    frames: list[pd.DataFrame] = []
+    seen: set[str] = set()
+    candidates: list[Path] = []
     if path:
         candidates.append(Path(path))
     candidates.extend(
         [
-            Path("Despesas_RBT_Normalizadas.xlsx"),
+            root / "Despesas_RBT.xlsx",
+            root / "Despesas Ago 2026.xlsx",
+            root / "Despesas_Ago_2026.xlsx",
             Path("Despesas_RBT.xlsx"),
+            Path("Despesas Ago 2026.xlsx"),
+            Path("Despesas_RBT_Normalizadas.xlsx"),
+            root / "Despesas_RBT_Normalizadas.xlsx",
         ]
     )
     for p in candidates:
         if not p.exists():
             continue
+        key = str(p.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
         try:
             if p.name.endswith("Normalizadas.xlsx"):
+                if frames:
+                    continue
                 df = pd.read_excel(p, sheet_name="Despesas")
             else:
-                from processar_despesas import processar
-
-                df = processar(p)
-            return build_despesa_rows(df)
+                df = processar(p, competencia_padrao=competencia_from_filename(p))
+            if df is not None and not df.empty:
+                frames.append(df)
         except Exception as exc:
             print(f"Aviso ao ler despesas ({p}): {exc}")
-    return []
+    if not frames:
+        return []
+    out = pd.concat(frames, ignore_index=True)
+    out["id"] = range(len(out))
+    return build_despesa_rows(out)
 
 
 def main() -> None:

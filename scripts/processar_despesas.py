@@ -52,6 +52,9 @@ def categorizar(fornecedor: str, historico: str) -> tuple[str, str]:
     f = _norm(fornecedor)
     h = _norm(historico)
 
+    if "invest" in h:
+        return "Investimento", "Investimento"
+
     if "pro-labore" in h or "pro labore" in h or "prolabore" in h:
         return "Pró-labore", "Pró-labore"
 
@@ -107,6 +110,30 @@ def categorizar(fornecedor: str, historico: str) -> tuple[str, str]:
     # Simples Nacional já entra no dashboard via imposto sobre a venda (9,2%)
     if "simples nacional" in h:
         return "", "EXCLUIR"
+
+    if "medicina" in h or "ocupacional" in h:
+        return "Pessoal", "Medicina do trabalho"
+
+    if "designer" in h:
+        return "Serviços", "Designer"
+
+    if "certificado" in h:
+        return "Outros", "Certificado"
+
+    if "cliche" in h:
+        return "Produção", "Clichê"
+
+    if "seguro" in h:
+        return "Pessoal", "Seguro de vida"
+
+    if h.strip() == "tinta" or h.startswith("tinta"):
+        return "Produção", "Tinta"
+
+    if h.strip() == "epi" or "epi" == h:
+        return "Pessoal", "EPI"
+
+    if "diferenca salarial" in h:
+        return "Pessoal", "Salário"
 
     if "fgts" in h or "inss" in h or "dctfweb" in h:
         return "Pessoal", "Encargos sociais (INSS/FGTS)"
@@ -170,9 +197,68 @@ def competencia_mes(liquidacao, historico: str) -> str | None:
     return None
 
 
-def processar(path: Path) -> pd.DataFrame:
-    raw = pd.read_excel(path, header=1)
+def competencia_from_filename(path: Path) -> str:
+    """Infere o mês-caixa pelo nome do arquivo (Ago 2026 → 2026-08)."""
+    name = _norm(path.name)
+    meses = {
+        "jan": 1,
+        "fev": 2,
+        "mar": 3,
+        "abr": 4,
+        "mai": 5,
+        "jun": 6,
+        "jul": 7,
+        "ago": 8,
+        "set": 9,
+        "out": 10,
+        "nov": 11,
+        "dez": 12,
+    }
+    m = re.search(
+        r"\b(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-z]*\s*/?-?\s*(\d{2,4})",
+        name,
+    )
+    if m:
+        mes = meses[m.group(1)[:3]]
+        ano = int(m.group(2))
+        if ano < 100:
+            ano += 2000
+        return f"{ano:04d}-{mes:02d}"
+    return "2026-07"
+
+
+def _ler_despesas_raw(path: Path) -> pd.DataFrame:
+    """Aceita planilha com cabeçalho (julho) ou 3 colunas sem cabeçalho (agosto)."""
+    raw0 = pd.read_excel(path, header=None)
+    if raw0.empty:
+        return raw0
+
+    def row_text(idx: int) -> str:
+        if idx >= len(raw0):
+            return ""
+        return " ".join(_norm(v) for v in raw0.iloc[idx].tolist())
+
+    if "fornecedor" in row_text(0):
+        raw = pd.read_excel(path, header=0)
+    elif "fornecedor" in row_text(1):
+        raw = pd.read_excel(path, header=1)
+    else:
+        raw = raw0.copy()
+        cols = list(raw.columns)
+        rename = {cols[0]: "Fornecedor"}
+        if len(cols) > 1:
+            rename[cols[1]] = "Histórico"
+        if len(cols) > 2:
+            rename[cols[2]] = "Pago"
+        raw = raw.rename(columns=rename)
     raw.columns = [str(c).strip() for c in raw.columns]
+    return raw
+
+
+def processar(path: Path, competencia_padrao: str | None = None) -> pd.DataFrame:
+    raw = _ler_despesas_raw(path)
+    raw.columns = [str(c).strip() for c in raw.columns]
+    padrao = competencia_padrao or competencia_from_filename(path)
     # Aceita variações de cabeçalho
     colmap = {}
     for c in raw.columns:
@@ -208,6 +294,8 @@ def processar(path: Path) -> pd.DataFrame:
             continue
         forn = "" if pd.isna(r.get("Fornecedor")) else str(r.get("Fornecedor")).strip()
         hist = "" if pd.isna(r.get("Histórico")) else str(r.get("Histórico")).strip()
+        if not forn and not hist:
+            continue
         # Histórico às vezes vem como data (Cemig/Copasa)
         if isinstance(r.get("Histórico"), (pd.Timestamp,)) or (
             hist and re.fullmatch(r"\d{4}-\d{2}-\d{2}.*", hist)
@@ -225,7 +313,8 @@ def processar(path: Path) -> pd.DataFrame:
         if pd.notna(liq):
             mes_caixa = liq.strftime("%Y-%m")
         else:
-            mes_caixa = "2026-07"
+            mes_caixa = padrao
+        tipo = "investimento" if cat == "Investimento" else "despesa"
         rows.append(
             {
                 "id": int(i),
@@ -238,6 +327,7 @@ def processar(path: Path) -> pd.DataFrame:
                 "Valor": round(valor_f, 2),
                 "Categoria": cat,
                 "Subcategoria": sub,
+                "Tipo": tipo,
             }
         )
     return pd.DataFrame(rows)
@@ -255,6 +345,11 @@ def main() -> None:
         default="Despesas_RBT_Normalizadas.xlsx",
         help="Saída normalizada",
     )
+    parser.add_argument(
+        "--competencia",
+        default=None,
+        help="Mês-caixa padrão (YYYY-MM) quando a linha não tem data",
+    )
     args = parser.parse_args()
 
     src = Path(args.input)
@@ -266,7 +361,7 @@ def main() -> None:
         else:
             raise SystemExit(f"Arquivo não encontrado: {src}")
 
-    df = processar(src)
+    df = processar(src, competencia_padrao=args.competencia)
     out = Path(args.output)
     with pd.ExcelWriter(out, engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name="Despesas", index=False)

@@ -70,6 +70,21 @@ CUSTO_ITENS_SHEET_CANDIDATES = (
     DEFAULT_CUSTO_ITENS_SHEET,
     "Custo de itens exceto etiquetas - jul 26.xlsx",
 )
+FATURAMENTO_AGO_CANDIDATES = (
+    "Faturamento Ago 2026.xlsx",
+    "Faturamento_Ago_2026.xlsx",
+)
+SEGMENTO_AGO = {
+    "etiqueta": "Etiqueta Branca",
+    "rotulo": "Etiqueta Branca",
+    "rótulo": "Etiqueta Branca",
+    "etiqueta colorida": "Etiqueta Colorida",
+    "ribbon": "Ribbon",
+    "ribbon cartão": "Ribbon",
+    "ribbon cartao": "Ribbon",
+    "cartão": "Outro",
+    "cartao": "Outro",
+}
 
 
 def br_to_float(value) -> float | None:
@@ -1034,6 +1049,136 @@ def match_custo_item(
     return matched.get("custo_unit")
 
 
+def _segmento_agosto(categoria) -> str:
+    key = str(categoria or "").strip().lower()
+    return SEGMENTO_AGO.get(key, str(categoria or "Outro").strip() or "Outro")
+
+
+def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
+    """Lê a planilha de agosto/2026.
+
+    Custo Total já engloba matéria-prima/produto, frete e imposto.
+    Frete fica só para acompanhamento (não reduz a venda líquida de novo).
+    """
+    path = None
+    for name in FATURAMENTO_AGO_CANDIDATES:
+        cand = base_dir / name
+        if cand.exists():
+            path = cand
+            break
+    if path is None:
+        return pd.DataFrame()
+
+    raw = pd.read_excel(path, sheet_name=0)
+    raw.columns = [str(c).strip() for c in raw.columns]
+    colmap = {}
+    for c in raw.columns:
+        cl = str(c).strip().lower()
+        if cl in {"nota", "nf", "número", "numero"}:
+            colmap[c] = "Nota"
+        elif cl.startswith("emiss"):
+            colmap[c] = "Emissão"
+        elif cl in {"cliente"}:
+            colmap[c] = "Cliente"
+        elif cl in {"categoria"}:
+            colmap[c] = "Categoria"
+        elif cl in {"item", "código", "codigo"}:
+            colmap[c] = "Item"
+        elif "nr. rolos" in cl or cl in {"nr rolos", "qtd rolos"}:
+            colmap[c] = "nr. rolos"
+        elif cl in {"l", "largura"}:
+            colmap[c] = "L"
+        elif cl in {"a", "altura"}:
+            colmap[c] = "A"
+        elif "custo total" in cl:
+            colmap[c] = "Custo Total"
+        elif cl == "venda":
+            colmap[c] = "Venda"
+        elif cl == "frete":
+            colmap[c] = "Frete"
+        elif cl.startswith("venda líquida") or cl.startswith("venda liquida"):
+            colmap[c] = "Venda líquida"
+    raw = raw.rename(columns=colmap)
+    if "Nota" not in raw.columns or "Venda" not in raw.columns:
+        return pd.DataFrame()
+
+    df = raw.copy()
+    df["_nf"] = df["Nota"].map(norm_nf)
+    df = df[df["_nf"].notna()].copy()
+    if "Cliente" in df.columns:
+        df["Cliente"] = df.groupby("_nf")["Cliente"].transform(lambda s: s.ffill().bfill())
+    if "Emissão" in df.columns:
+        df["Emissão"] = df.groupby("_nf")["Emissão"].transform(lambda s: s.ffill().bfill())
+
+    rows = []
+    for _, r in df.iterrows():
+        venda = br_to_float(r.get("Venda"))
+        custo_total = br_to_float(r.get("Custo Total"))
+        if venda is None and custo_total is None:
+            continue
+        qtd = br_to_float(r.get("nr. rolos"))
+        frete = br_to_float(r.get("Frete")) or 0.0
+        # Custo já traz MP/produto + frete + imposto → não descontar de novo
+        venda_liquida = None
+        perc_lucro = None
+        status = STATUS_INCOMPLETO
+        if venda is not None and custo_total is not None:
+            venda_liquida = venda - custo_total
+            perc_lucro = (venda_liquida / custo_total) if custo_total else None
+            status = STATUS_OK
+        custo_unit = None
+        custo_rolo = None
+        if custo_total is not None and qtd is not None and qtd > 0:
+            custo_unit = custo_total / qtd
+            custo_rolo = custo_unit
+        segmento = _segmento_agosto(r.get("Categoria"))
+        item = r.get("Item")
+        item_s = None if item is None or (isinstance(item, float) and pd.isna(item)) else str(item).strip()
+        rows.append(
+            {
+                "Número": format_nf_4digitos(r.get("Nota")),
+                "Nome": r.get("Cliente"),
+                "Data de emissão": r.get("Emissão"),
+                "Situação": "Emitida DANFE",
+                "UF": None,
+                "Código": item_s,
+                "Descrição": item_s,
+                "Segmento": segmento,
+                "Unidade": "RL" if str(segmento).startswith("Etiqueta") else "UN",
+                "Quantidade": qtd,
+                "Valor unitário": (venda / qtd) if venda is not None and qtd and qtd > 0 else None,
+                "Valor total venda": venda,
+                "Material": None,
+                "Largura_mm": br_to_float(r.get("L")),
+                "Altura_mm": br_to_float(r.get("A")),
+                "Area_etiqueta_m2": None,
+                "Qtd_rolo_raw": None,
+                "Qtd_rolo_tipo": None,
+                "Nr_etiquetas_rolo": None,
+                "Area_rolo_m2": None,
+                "Custo_substrato_m2": None,
+                "Tubete_pol": None,
+                "Tubete": None,
+                "Custo_tubete": None,
+                "Custo_embalagem_rolo": None,
+                "Custo_material_rolo": None,
+                "Custo_rolo": custo_rolo,
+                "Qtd_tubetes": qtd if str(segmento).startswith("Etiqueta") else None,
+                "Base custo unitário": "planilha_agosto_custo_total",
+                "Custo unitário item": custo_unit,
+                "Custo total item": custo_total,
+                "Frete": frete,
+                "Base frete": "incluso_custo_informativo",
+                "Imposto (9,2%)": 0.0,
+                "Venda líquida": venda_liquida,
+                "% Lucro": perc_lucro,
+                "Status custo": status,
+                "Pendências": "",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def calcular_relatorio(
     path: Path,
     etiqueta_cost_sheet: Path | None = None,
@@ -1374,7 +1519,11 @@ def calcular_relatorio(
             }
         )
 
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    ago = load_faturamento_agosto(path.parent)
+    if not ago.empty:
+        df = pd.concat([df, ago], ignore_index=True)
+    return df
 
 
 def resumo(df: pd.DataFrame) -> pd.DataFrame:

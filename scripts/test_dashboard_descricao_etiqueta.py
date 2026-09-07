@@ -65,8 +65,18 @@ def test_html_detalhe_column_is_descricao():
     assert "${desc}" in html or "${{desc}}" in html or ">${desc}<" in html or ">${desc}</td>" in html
 
 
+def test_html_agosto_frete_e_investimento():
+    html = render_html([], "01/07/2026 a 31/08/2026", [])
+    assert "Frete (informativo)" in html
+    assert "Investimentos" in html
+    assert "kpiFrete" in html
+    assert "tblInvestimentos" in html
+    assert "incluso_custo_informativo" in html
+
+
 if __name__ == "__main__":
     test_template_uses_descricao_not_material()
     test_build_rows_keeps_etiqueta_description()
     test_html_detalhe_column_is_descricao()
+    test_html_agosto_frete_e_investimento()
     print("OK: detalhe por cliente/NF usa descrição da NF")
