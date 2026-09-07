@@ -1067,29 +1067,36 @@ def _excel_col(df: pd.DataFrame, letter: str) -> pd.Series | None:
     return df.iloc[:, idx]
 
 
-def _agosto_custo_e_liquida(venda: float | None, col_t: float | None, custo_p: float | None):
-    """Agosto: coluna T é a venda líquida; custo total = produto + frete + imposto.
+def _agosto_custo_e_liquida(
+    custo_p: float | None,
+    frete: float | None,
+    imposto: float | None,
+    col_t: float | None,
+    venda: float | None = None,
+):
+    """Agosto: custo total = custo (produto) + frete + imposto; coluna T = venda líquida.
 
-    A coluna P se chama "Custo Total", mas é só produto × custo Camila (F×N),
-    sem frete nem imposto. A coluna T (sem cabeçalho) é a venda líquida:
-      etiquetas: T = Venda − (Custo Unit.×rolos + Frete + Impostos)
-      ribbons:   T = coluna U (Venda − P − Frete − Impostos)
-    Custo total = Venda − T (= custo do produto + frete + imposto).
+    A coluna P se chama "Custo Total", mas é só o custo do produto (F×N Camila).
+    Custo total = P + Frete + Impostos. A coluna T (sem cabeçalho) é a venda líquida.
     Frete/imposto já entram nesse custo e não devem ser descontados de novo.
     """
-    if venda is not None and col_t is not None:
-        venda_liquida = col_t
-        custo_total = venda - venda_liquida
-        return custo_total, venda_liquida
-    if venda is not None and custo_p is not None:
-        return custo_p, venda - custo_p
-    return custo_p, None
+    frete_v = frete or 0.0
+    imposto_v = imposto or 0.0
+    custo_total = None
+    if custo_p is not None:
+        custo_total = custo_p + frete_v + imposto_v
+    elif venda is not None and col_t is not None:
+        custo_total = venda - col_t
+    venda_liquida = col_t
+    if venda_liquida is None and venda is not None and custo_total is not None:
+        venda_liquida = venda - custo_total
+    return custo_total, venda_liquida
 
 
 def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
     """Lê a planilha de agosto/2026.
 
-    Coluna T = venda líquida. Custo total = produto + frete + imposto (Venda − T).
+    Coluna T = venda líquida. Custo total = custo (P) + frete + imposto.
     Frete fica só para acompanhamento (não reduz a venda líquida de novo).
     """
     path = None
@@ -1132,6 +1139,8 @@ def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
             colmap[c] = "Venda"
         elif cl == "frete":
             colmap[c] = "Frete"
+        elif cl.startswith("imposto"):
+            colmap[c] = "Impostos"
         elif cl.startswith("venda líquida") or cl.startswith("venda liquida"):
             colmap[c] = "Venda líquida"
     raw = raw.rename(columns=colmap)
@@ -1151,11 +1160,14 @@ def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
         venda = br_to_float(r.get("Venda"))
         custo_p = br_to_float(r.get("Custo Total"))
         col_t = br_to_float(r.get("_venda_liquida_t"))
-        custo_total, venda_liquida = _agosto_custo_e_liquida(venda, col_t, custo_p)
-        if venda is None and custo_total is None:
-            continue
         qtd = br_to_float(r.get("nr. rolos"))
         frete = br_to_float(r.get("Frete")) or 0.0
+        imposto = br_to_float(r.get("Impostos")) or 0.0
+        custo_total, venda_liquida = _agosto_custo_e_liquida(
+            custo_p, frete, imposto, col_t, venda
+        )
+        if venda is None and custo_total is None:
+            continue
         perc_lucro = None
         status = STATUS_INCOMPLETO
         if venda is not None and custo_total is not None:
@@ -1199,7 +1211,7 @@ def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
                 "Custo_material_rolo": None,
                 "Custo_rolo": custo_rolo,
                 "Qtd_tubetes": qtd if str(segmento).startswith("Etiqueta") else None,
-                "Base custo unitário": "planilha_agosto_venda_liquida_t",
+                "Base custo unitário": "planilha_agosto_custo_frete_imposto",
                 "Custo unitário item": custo_unit,
                 "Custo total item": custo_total,
                 "Frete": frete,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Agosto/2026: coluna T = venda líquida; custo = produto + frete + imposto."""
+"""Agosto/2026: coluna T = venda líquida; custo total = custo + frete + imposto."""
 
 from pathlib import Path
 
@@ -14,28 +14,38 @@ ROOT = Path(__file__).resolve().parents[1]
 FAT = ROOT / "Faturamento_RBT (2).xlsx"
 FRETE_AGO = 9102.03
 VENDA_AGO = 303982.14
-# Coluna P ("Custo Total") = Camila, só produto — não é o custo total
+IMPOSTO_AGO = 27867.48
+# Coluna P = só produto (Camila)
 CUSTO_P_CAMILA = 181491.61
-# Coluna T = venda líquida; custo total = produto + frete + imposto = Venda − T
-CUSTO_AGO = 221199.46
+# Custo total = P + frete + imposto
+CUSTO_AGO = 218461.13
+# Coluna T = venda líquida
 LIQ_AGO = 82782.68
 INV_FLEXOMETAL = 1774.84
-# NF 1176 BASE: P=3112,80 (só produto); T=−1186,07 (venda líquida)
+# NF 1176 BASE ETBOPP100x80
 NF_1176_CUSTO_P = 3112.80
 NF_1176_VENDA = 5494.50
+NF_1176_FRETE = 200.00
+NF_1176_IMPOSTO = 504.94
 NF_1176_LIQ_T = -1186.07
-NF_1176_CUSTO = 6680.57  # produto + frete + imposto
+NF_1176_CUSTO = 3817.74  # 3112,80 + 200,00 + 504,94
 
 
 def approx(a, b, tol=0.05):
     return abs(float(a) - float(b)) <= tol
 
 
-def test_coluna_t_e_venda_liquida():
-    custo, liq = _agosto_custo_e_liquida(NF_1176_VENDA, NF_1176_LIQ_T, NF_1176_CUSTO_P)
+def test_custo_total_e_produto_mais_frete_mais_imposto():
+    custo, liq = _agosto_custo_e_liquida(
+        NF_1176_CUSTO_P,
+        NF_1176_FRETE,
+        NF_1176_IMPOSTO,
+        NF_1176_LIQ_T,
+        NF_1176_VENDA,
+    )
     assert approx(liq, NF_1176_LIQ_T, tol=0.02)
     assert approx(custo, NF_1176_CUSTO, tol=0.02)
-    assert approx(custo, NF_1176_VENDA - NF_1176_LIQ_T, tol=0.02)
+    assert approx(custo, NF_1176_CUSTO_P + NF_1176_FRETE + NF_1176_IMPOSTO, tol=0.02)
     assert not approx(custo, NF_1176_CUSTO_P, tol=1.0)
     assert not approx(custo, NF_1176_LIQ_T, tol=1.0)
 
@@ -54,14 +64,12 @@ def test_faturamento_agosto_totais():
     liq = float(ago["Venda líquida"].sum())
     assert approx(venda, VENDA_AGO, tol=1.0), venda
     assert approx(custo, CUSTO_AGO, tol=1.0), custo
+    assert approx(custo, CUSTO_P_CAMILA + FRETE_AGO + IMPOSTO_AGO, tol=1.0), custo
     assert not approx(custo, CUSTO_P_CAMILA, tol=1.0), custo
     assert approx(liq, LIQ_AGO, tol=1.0), liq
     assert approx(frete, FRETE_AGO, tol=0.05), frete
-    # Coluna T = venda líquida; custo = produto + frete + imposto = venda − T
-    assert approx(liq, venda - custo, tol=0.5), (liq, venda - custo)
-    assert not approx(liq, venda - custo - frete, tol=50)
     assert (ago["Base frete"] == "incluso_custo_informativo").all()
-    assert (ago["Base custo unitário"] == "planilha_agosto_venda_liquida_t").all()
+    assert (ago["Base custo unitário"] == "planilha_agosto_custo_frete_imposto").all()
     pct_frete = frete / venda
     assert 0.029 < pct_frete < 0.031, pct_frete
 
@@ -82,6 +90,7 @@ def test_relatorio_inclui_agosto():
     assert approx(ago["Valor total venda"].sum(), VENDA_AGO, tol=1.0)
     assert approx(ago["Custo total item"].sum(), CUSTO_AGO, tol=1.0)
     assert not approx(ago["Custo total item"].sum(), CUSTO_P_CAMILA, tol=1.0)
+    assert approx(ago["Venda líquida"].sum(), LIQ_AGO, tol=1.0)
 
 
 def pd_to_month(df):
@@ -111,9 +120,9 @@ def test_despesas_agosto_separa_investimento():
 
 
 if __name__ == "__main__":
-    test_coluna_t_e_venda_liquida()
+    test_custo_total_e_produto_mais_frete_mais_imposto()
     test_competencia_arquivo_agosto()
     test_faturamento_agosto_totais()
     test_relatorio_inclui_agosto()
     test_despesas_agosto_separa_investimento()
-    print("OK: agosto/2026 · coluna T = venda líquida · custo = produto+frete+imposto")
+    print("OK: agosto/2026 · T = venda líquida · custo = produto+frete+imposto")
