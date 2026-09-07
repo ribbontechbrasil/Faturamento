@@ -1067,18 +1067,20 @@ def _excel_col(df: pd.DataFrame, letter: str) -> pd.Series | None:
     return df.iloc[:, idx]
 
 
-def _custo_agosto_coluna_t(venda: float | None, col_t: float | None, custo_p: float | None):
-    """Custo real de agosto a partir da coluna T.
+def _agosto_custo_e_liquida(venda: float | None, col_t: float | None, custo_p: float | None):
+    """Agosto: coluna T é a venda líquida; custo total = produto + frete + imposto.
 
-    A coluna P se chama "Custo Total", mas é só produto × custo Camila (F×N).
-    A coluna T (sem cabeçalho) é o resultado após o custo real:
+    A coluna P se chama "Custo Total", mas é só produto × custo Camila (F×N),
+    sem frete nem imposto. A coluna T (sem cabeçalho) é a venda líquida:
       etiquetas: T = Venda − (Custo Unit.×rolos + Frete + Impostos)
-      ribbons:   T = Venda líquida (U)
-    Logo o custo total real é Venda − T. Frete/imposto já entram nesse custo
-    e não devem ser descontados de novo da venda líquida.
+      ribbons:   T = coluna U (Venda − P − Frete − Impostos)
+    Custo total = Venda − T (= custo do produto + frete + imposto).
+    Frete/imposto já entram nesse custo e não devem ser descontados de novo.
     """
     if venda is not None and col_t is not None:
-        return venda - col_t, col_t
+        venda_liquida = col_t
+        custo_total = venda - venda_liquida
+        return custo_total, venda_liquida
     if venda is not None and custo_p is not None:
         return custo_p, venda - custo_p
     return custo_p, None
@@ -1087,8 +1089,7 @@ def _custo_agosto_coluna_t(venda: float | None, col_t: float | None, custo_p: fl
 def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
     """Lê a planilha de agosto/2026.
 
-    Custo total real vem da coluna T (Venda − T), não da coluna P.
-    Esse custo já engloba matéria-prima/produto, frete e imposto.
+    Coluna T = venda líquida. Custo total = produto + frete + imposto (Venda − T).
     Frete fica só para acompanhamento (não reduz a venda líquida de novo).
     """
     path = None
@@ -1104,7 +1105,7 @@ def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
     col_t_series = _excel_col(raw, "T")
     if col_t_series is not None:
         raw = raw.copy()
-        raw["_resultado_col_t"] = col_t_series
+        raw["_venda_liquida_t"] = col_t_series
     raw.columns = [str(c).strip() for c in raw.columns]
     colmap = {}
     for c in raw.columns:
@@ -1149,8 +1150,8 @@ def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
     for _, r in df.iterrows():
         venda = br_to_float(r.get("Venda"))
         custo_p = br_to_float(r.get("Custo Total"))
-        col_t = br_to_float(r.get("_resultado_col_t"))
-        custo_total, venda_liquida = _custo_agosto_coluna_t(venda, col_t, custo_p)
+        col_t = br_to_float(r.get("_venda_liquida_t"))
+        custo_total, venda_liquida = _agosto_custo_e_liquida(venda, col_t, custo_p)
         if venda is None and custo_total is None:
             continue
         qtd = br_to_float(r.get("nr. rolos"))
@@ -1198,7 +1199,7 @@ def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
                 "Custo_material_rolo": None,
                 "Custo_rolo": custo_rolo,
                 "Qtd_tubetes": qtd if str(segmento).startswith("Etiqueta") else None,
-                "Base custo unitário": "planilha_agosto_coluna_t",
+                "Base custo unitário": "planilha_agosto_venda_liquida_t",
                 "Custo unitário item": custo_unit,
                 "Custo total item": custo_total,
                 "Frete": frete,
