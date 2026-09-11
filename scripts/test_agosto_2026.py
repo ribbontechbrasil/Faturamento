@@ -23,12 +23,16 @@ NF_1167_CUSTO_FORMULA = 659.06  # 500 + 88,94 + 70,12
 NF_1167_CUSTO = 602.40
 NF_1190_CUSTO_FORMULA = 2128.82  # 1800 + 105,32 + 223,50
 NF_1190_CUSTO = 1252.32
+NF_1202_CUSTO_FORMULA = 162.34  # 108 + 40 + 14,34
+NF_1202_CUSTO = 122.34
+NF_1202_VENDA = 156.00
 CUSTO_AGO_AJUSTE_CONFERIDO = (
     NF_1167_CUSTO - NF_1167_CUSTO_FORMULA
     + NF_1190_CUSTO - NF_1190_CUSTO_FORMULA
+    + NF_1202_CUSTO - NF_1202_CUSTO_FORMULA
 )
 # Custo total = P + frete + imposto + ajustes conferidos
-CUSTO_AGO = 229762.21
+CUSTO_AGO = 229722.21
 # Coluna T = venda líquida (1176 e 1180 conferidas)
 LIQ_AGO = 72759.06
 INV_FLEXOMETAL = 1774.84
@@ -117,6 +121,11 @@ def test_faturamento_agosto_totais():
     assert len(nf1190) == 1, nf1190
     assert approx(nf1190.iloc[0]["Custo total item"], NF_1190_CUSTO, tol=0.05)
     assert not approx(nf1190.iloc[0]["Custo total item"], 1800.0, tol=1.0)
+
+    nf1202 = ago[(ago["Número"] == "1202") & (ago["Código"].astype(str).str.contains("SC0548"))]
+    assert len(nf1202) == 1, nf1202
+    assert approx(nf1202.iloc[0]["Valor total venda"], NF_1202_VENDA, tol=0.05)
+    assert approx(nf1202.iloc[0]["Custo total item"], NF_1202_CUSTO, tol=0.05)
 
 
 def test_relatorio_inclui_agosto():

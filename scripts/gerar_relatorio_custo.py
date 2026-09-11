@@ -85,6 +85,7 @@ CUSTO_OVERRIDE = {
     ("1167", "ROTPEAD86X165T3"): 602.40,
     ("1180", "300445/110"): 22593.63,
     ("1190", "ROT0300100039"): 1252.32,
+    ("1202", "SC0548"): 122.34,
 }
 SEGMENTO_AGO = {
     "etiqueta": "Etiqueta Branca",
