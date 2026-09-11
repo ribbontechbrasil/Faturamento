@@ -16,10 +16,14 @@ FAT = ROOT / "Faturamento_RBT (2).xlsx"
 FRETE_AGO = 9102.03
 VENDA_AGO = 303982.14
 IMPOSTO_AGO = 27867.48
-# Coluna P = só produto (Camila)
+# Coluna P = só produto (Camila), com PEAD NF 1167 ainda em 500 na soma de referência
 CUSTO_P_CAMILA = 181491.61
-# Custo total = P + frete + imposto
-CUSTO_AGO = 218461.13
+# NF 1167 rot.PEAD86x165T3: custo conferido R$ 602,40 no lugar de P+frete+imposto
+NF_1167_CUSTO_FORMULA = 659.06  # 500 + 88,94 + 70,12
+NF_1167_CUSTO = 602.40
+CUSTO_AGO_AJUSTE_CONFERIDO = NF_1167_CUSTO - NF_1167_CUSTO_FORMULA  # −56,66
+# Custo total = P + frete + imposto + ajuste conferido
+CUSTO_AGO = 218404.47
 # Coluna T = venda líquida (NF 1176 ETBOPP100x80 conferida em R$ 1.024,56)
 LIQ_AGO = 84993.31
 INV_FLEXOMETAL = 1774.84
@@ -65,12 +69,19 @@ def test_faturamento_agosto_totais():
     liq = float(ago["Venda líquida"].sum())
     assert approx(venda, VENDA_AGO, tol=1.0), venda
     assert approx(custo, CUSTO_AGO, tol=1.0), custo
-    assert approx(custo, CUSTO_P_CAMILA + FRETE_AGO + IMPOSTO_AGO, tol=1.0), custo
+    assert approx(
+        custo,
+        CUSTO_P_CAMILA + FRETE_AGO + IMPOSTO_AGO + CUSTO_AGO_AJUSTE_CONFERIDO,
+        tol=1.0,
+    ), custo
     assert not approx(custo, CUSTO_P_CAMILA, tol=1.0), custo
     assert approx(liq, LIQ_AGO, tol=1.0), liq
     assert approx(frete, FRETE_AGO, tol=0.05), frete
     assert (ago["Base frete"] == "incluso_custo_informativo").all()
-    assert (ago["Base custo unitário"] == "planilha_agosto_custo_frete_imposto").all()
+    assert set(ago["Base custo unitário"].unique()) <= {
+        "planilha_agosto_custo_frete_imposto",
+        "custo_conferido",
+    }
     pct_frete = frete / venda
     assert 0.029 < pct_frete < 0.031, pct_frete
 
@@ -81,6 +92,11 @@ def test_faturamento_agosto_totais():
     assert approx(nf1176.iloc[0]["Custo total item"], NF_1176_CUSTO, tol=0.05)
     assert venda_liquida_override(1176, "ETBOPP100x80") == NF_1176_LIQ
     assert not approx(nf1176.iloc[0]["Custo total item"], NF_1176_CUSTO_P, tol=1.0)
+
+    nf1167 = ago[ago["Código"].astype(str).str.contains("PEAD86x165", case=False)]
+    assert len(nf1167) == 1, nf1167
+    assert nf1167.iloc[0]["Número"] == "1167"
+    assert approx(nf1167.iloc[0]["Custo total item"], NF_1167_CUSTO, tol=0.05)
 
 
 def test_relatorio_inclui_agosto():

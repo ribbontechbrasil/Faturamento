@@ -79,6 +79,10 @@ FATURAMENTO_AGO_CANDIDATES = (
 VENDA_LIQUIDA_OVERRIDE = {
     ("1176", "ETBOPP100X80"): 1024.56,
 }
+# Custo conferido (substitui P+frete+imposto neste item).
+CUSTO_OVERRIDE = {
+    ("1167", "ROTPEAD86X165T3"): 602.40,
+}
 SEGMENTO_AGO = {
     "etiqueta": "Etiqueta Branca",
     "rotulo": "Etiqueta Branca",
@@ -1072,13 +1076,28 @@ def _excel_col(df: pd.DataFrame, letter: str) -> pd.Series | None:
     return df.iloc[:, idx]
 
 
-def venda_liquida_override(nf, codigo) -> float | None:
-    """Retorna venda líquida conferida para NF+item, se houver."""
+def _nf_item_override(mapping: dict, nf, codigo) -> float | None:
+    """Busca valor conferido por NF + código (aceita aliases de código)."""
     nf_key = format_nf_4digitos(nf)
     ck = code_key(codigo)
     if nf_key is None or ck is None:
         return None
-    return VENDA_LIQUIDA_OVERRIDE.get((nf_key, ck))
+    if (nf_key, ck) in mapping:
+        return mapping[(nf_key, ck)]
+    for (n, c), val in mapping.items():
+        if n == nf_key and codes_compatible(c, ck):
+            return val
+    return None
+
+
+def venda_liquida_override(nf, codigo) -> float | None:
+    """Retorna venda líquida conferida para NF+item, se houver."""
+    return _nf_item_override(VENDA_LIQUIDA_OVERRIDE, nf, codigo)
+
+
+def custo_override(nf, codigo) -> float | None:
+    """Retorna custo conferido para NF+item, se houver."""
+    return _nf_item_override(CUSTO_OVERRIDE, nf, codigo)
 
 
 def _agosto_custo_e_liquida(
@@ -1185,6 +1204,11 @@ def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
         ov = venda_liquida_override(r.get("Nota"), item_s)
         if ov is not None:
             venda_liquida = ov
+        ov_custo = custo_override(r.get("Nota"), item_s)
+        base_custo = "planilha_agosto_custo_frete_imposto"
+        if ov_custo is not None:
+            custo_total = ov_custo
+            base_custo = "custo_conferido"
         if venda is None and custo_total is None:
             continue
         perc_lucro = None
@@ -1228,7 +1252,7 @@ def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
                 "Custo_material_rolo": None,
                 "Custo_rolo": custo_rolo,
                 "Qtd_tubetes": qtd if str(segmento).startswith("Etiqueta") else None,
-                "Base custo unitário": "planilha_agosto_custo_frete_imposto",
+                "Base custo unitário": base_custo,
                 "Custo unitário item": custo_unit,
                 "Custo total item": custo_total,
                 "Frete": frete,
