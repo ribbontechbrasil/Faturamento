@@ -16,16 +16,16 @@ FAT = ROOT / "Faturamento_RBT (2).xlsx"
 FRETE_AGO = 9102.03
 VENDA_AGO = 303982.14
 IMPOSTO_AGO = 27867.48
-# Coluna P = só produto (Camila), com PEAD NF 1167 ainda em 500 na soma de referência
-CUSTO_P_CAMILA = 181491.61
+# Coluna P = só produto (Camila); NF 1180 com unitário 33,60 (não 12,36)
+CUSTO_P_CAMILA = 193725.85
 # NF 1167 rot.PEAD86x165T3: custo conferido R$ 602,40 no lugar de P+frete+imposto
 NF_1167_CUSTO_FORMULA = 659.06  # 500 + 88,94 + 70,12
 NF_1167_CUSTO = 602.40
 CUSTO_AGO_AJUSTE_CONFERIDO = NF_1167_CUSTO - NF_1167_CUSTO_FORMULA  # −56,66
 # Custo total = P + frete + imposto + ajuste conferido
-CUSTO_AGO = 218404.47
-# Coluna T = venda líquida (NF 1176 ETBOPP100x80 conferida em R$ 1.024,56)
-LIQ_AGO = 84993.31
+CUSTO_AGO = 230638.71
+# Coluna T = venda líquida (1176 e 1180 conferidas)
+LIQ_AGO = 72759.06
 INV_FLEXOMETAL = 1774.84
 # NF 1176 BASE ETBOPP100x80
 NF_1176_CUSTO_P = 3112.80
@@ -34,6 +34,10 @@ NF_1176_FRETE = 200.00
 NF_1176_IMPOSTO = 504.94
 NF_1176_LIQ = 1024.56  # conferida (coluna T teórica era −1.186,07)
 NF_1176_CUSTO = 3817.74  # 3112,80 + 200,00 + 504,94
+# NF 1180 SAUDALI 300445/110 — unitário 33,60 (não 12,36)
+NF_1180_CUSTO = 22593.63
+NF_1180_LIQ = 6684.45
+NF_1180_VENDA = 29278.08
 
 
 def approx(a, b, tol=0.05):

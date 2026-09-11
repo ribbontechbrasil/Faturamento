@@ -78,10 +78,12 @@ FATURAMENTO_AGO_CANDIDATES = (
 # que neste item gera −R$ 1.186,07. Valor correto informado: R$ 1.024,56.
 VENDA_LIQUIDA_OVERRIDE = {
     ("1176", "ETBOPP100X80"): 1024.56,
+    ("1180", "300445/110"): 6684.45,
 }
 # Custo conferido (substitui P+frete+imposto neste item).
 CUSTO_OVERRIDE = {
     ("1167", "ROTPEAD86X165T3"): 602.40,
+    ("1180", "300445/110"): 22593.63,
 }
 SEGMENTO_AGO = {
     "etiqueta": "Etiqueta Branca",
