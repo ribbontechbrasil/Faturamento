@@ -74,6 +74,11 @@ FATURAMENTO_AGO_CANDIDATES = (
     "Faturamento Ago 2026.xlsx",
     "Faturamento_Ago_2026.xlsx",
 )
+# Venda líquida conferida — a coluna T de agosto usa Custo Unit. teórico (M),
+# que neste item gera −R$ 1.186,07. Valor correto informado: R$ 1.024,56.
+VENDA_LIQUIDA_OVERRIDE = {
+    ("1176", "ETBOPP100X80"): 1024.56,
+}
 SEGMENTO_AGO = {
     "etiqueta": "Etiqueta Branca",
     "rotulo": "Etiqueta Branca",
@@ -1067,6 +1072,15 @@ def _excel_col(df: pd.DataFrame, letter: str) -> pd.Series | None:
     return df.iloc[:, idx]
 
 
+def venda_liquida_override(nf, codigo) -> float | None:
+    """Retorna venda líquida conferida para NF+item, se houver."""
+    nf_key = format_nf_4digitos(nf)
+    ck = code_key(codigo)
+    if nf_key is None or ck is None:
+        return None
+    return VENDA_LIQUIDA_OVERRIDE.get((nf_key, ck))
+
+
 def _agosto_custo_e_liquida(
     custo_p: float | None,
     frete: float | None,
@@ -1163,9 +1177,14 @@ def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
         qtd = br_to_float(r.get("nr. rolos"))
         frete = br_to_float(r.get("Frete")) or 0.0
         imposto = br_to_float(r.get("Impostos")) or 0.0
+        item = r.get("Item")
+        item_s = None if item is None or (isinstance(item, float) and pd.isna(item)) else str(item).strip()
         custo_total, venda_liquida = _agosto_custo_e_liquida(
             custo_p, frete, imposto, col_t, venda
         )
+        ov = venda_liquida_override(r.get("Nota"), item_s)
+        if ov is not None:
+            venda_liquida = ov
         if venda is None and custo_total is None:
             continue
         perc_lucro = None
@@ -1179,8 +1198,6 @@ def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
             custo_unit = custo_total / qtd
             custo_rolo = custo_unit
         segmento = _segmento_agosto(r.get("Categoria"))
-        item = r.get("Item")
-        item_s = None if item is None or (isinstance(item, float) and pd.isna(item)) else str(item).strip()
         rows.append(
             {
                 "Número": format_nf_4digitos(r.get("Nota")),

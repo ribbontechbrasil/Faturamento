@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Agosto/2026: coluna T = venda líquida; custo total = custo + frete + imposto."""
+"""Agosto/2026: coluna T = venda líquida; NF 1176 ETBOPP100x80 = R$ 1.024,56."""
 
 from pathlib import Path
 
@@ -7,6 +7,7 @@ from gerar_relatorio_custo import (
     _agosto_custo_e_liquida,
     calcular_relatorio,
     load_faturamento_agosto,
+    venda_liquida_override,
 )
 from processar_despesas import competencia_from_filename, processar
 
@@ -19,15 +20,15 @@ IMPOSTO_AGO = 27867.48
 CUSTO_P_CAMILA = 181491.61
 # Custo total = P + frete + imposto
 CUSTO_AGO = 218461.13
-# Coluna T = venda líquida
-LIQ_AGO = 82782.68
+# Coluna T = venda líquida (NF 1176 ETBOPP100x80 conferida em R$ 1.024,56)
+LIQ_AGO = 84993.31
 INV_FLEXOMETAL = 1774.84
 # NF 1176 BASE ETBOPP100x80
 NF_1176_CUSTO_P = 3112.80
 NF_1176_VENDA = 5494.50
 NF_1176_FRETE = 200.00
 NF_1176_IMPOSTO = 504.94
-NF_1176_LIQ_T = -1186.07
+NF_1176_LIQ = 1024.56  # conferida (coluna T teórica era −1.186,07)
 NF_1176_CUSTO = 3817.74  # 3112,80 + 200,00 + 504,94
 
 
@@ -40,14 +41,14 @@ def test_custo_total_e_produto_mais_frete_mais_imposto():
         NF_1176_CUSTO_P,
         NF_1176_FRETE,
         NF_1176_IMPOSTO,
-        NF_1176_LIQ_T,
+        NF_1176_LIQ,
         NF_1176_VENDA,
     )
-    assert approx(liq, NF_1176_LIQ_T, tol=0.02)
+    assert approx(liq, NF_1176_LIQ, tol=0.02)
     assert approx(custo, NF_1176_CUSTO, tol=0.02)
     assert approx(custo, NF_1176_CUSTO_P + NF_1176_FRETE + NF_1176_IMPOSTO, tol=0.02)
     assert not approx(custo, NF_1176_CUSTO_P, tol=1.0)
-    assert not approx(custo, NF_1176_LIQ_T, tol=1.0)
+    assert not approx(custo, NF_1176_LIQ, tol=1.0)
 
 
 def test_competencia_arquivo_agosto():
@@ -76,8 +77,9 @@ def test_faturamento_agosto_totais():
     nf1176 = ago[(ago["Número"] == "1176") & (ago["Código"] == "ETBOPP100x80")]
     assert len(nf1176) == 1, nf1176
     assert approx(nf1176.iloc[0]["Valor total venda"], NF_1176_VENDA, tol=0.05)
-    assert approx(nf1176.iloc[0]["Venda líquida"], NF_1176_LIQ_T, tol=0.05)
+    assert approx(nf1176.iloc[0]["Venda líquida"], NF_1176_LIQ, tol=0.05)
     assert approx(nf1176.iloc[0]["Custo total item"], NF_1176_CUSTO, tol=0.05)
+    assert venda_liquida_override(1176, "ETBOPP100x80") == NF_1176_LIQ
     assert not approx(nf1176.iloc[0]["Custo total item"], NF_1176_CUSTO_P, tol=1.0)
 
 
