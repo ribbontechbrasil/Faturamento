@@ -21,9 +21,14 @@ CUSTO_P_CAMILA = 193725.85
 # NF 1167 rot.PEAD86x165T3: custo conferido R$ 602,40 no lugar de P+frete+imposto
 NF_1167_CUSTO_FORMULA = 659.06  # 500 + 88,94 + 70,12
 NF_1167_CUSTO = 602.40
-CUSTO_AGO_AJUSTE_CONFERIDO = NF_1167_CUSTO - NF_1167_CUSTO_FORMULA  # −56,66
-# Custo total = P + frete + imposto + ajuste conferido
-CUSTO_AGO = 230638.71
+NF_1190_CUSTO_FORMULA = 2128.82  # 1800 + 105,32 + 223,50
+NF_1190_CUSTO = 1252.32
+CUSTO_AGO_AJUSTE_CONFERIDO = (
+    NF_1167_CUSTO - NF_1167_CUSTO_FORMULA
+    + NF_1190_CUSTO - NF_1190_CUSTO_FORMULA
+)
+# Custo total = P + frete + imposto + ajustes conferidos
+CUSTO_AGO = 229762.21
 # Coluna T = venda líquida (1176 e 1180 conferidas)
 LIQ_AGO = 72759.06
 INV_FLEXOMETAL = 1774.84
@@ -101,6 +106,17 @@ def test_faturamento_agosto_totais():
     assert len(nf1167) == 1, nf1167
     assert nf1167.iloc[0]["Número"] == "1167"
     assert approx(nf1167.iloc[0]["Custo total item"], NF_1167_CUSTO, tol=0.05)
+
+    nf1180 = ago[(ago["Número"] == "1180") & (ago["Código"].astype(str).str.contains("300445/110"))]
+    assert len(nf1180) == 1, nf1180
+    assert approx(nf1180.iloc[0]["Valor total venda"], NF_1180_VENDA, tol=0.05)
+    assert approx(nf1180.iloc[0]["Custo total item"], NF_1180_CUSTO, tol=0.05)
+    assert approx(nf1180.iloc[0]["Venda líquida"], NF_1180_LIQ, tol=0.05)
+
+    nf1190 = ago[(ago["Número"] == "1190") & (ago["Código"].astype(str).str.contains("03.001.00039"))]
+    assert len(nf1190) == 1, nf1190
+    assert approx(nf1190.iloc[0]["Custo total item"], NF_1190_CUSTO, tol=0.05)
+    assert not approx(nf1190.iloc[0]["Custo total item"], 1800.0, tol=1.0)
 
 
 def test_relatorio_inclui_agosto():
