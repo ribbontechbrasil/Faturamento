@@ -130,6 +130,10 @@ def test_faturamento_agosto_totais():
     assert approx(nf1202.iloc[0]["Valor total venda"], NF_1202_VENDA, tol=0.05)
     assert approx(nf1202.iloc[0]["Custo total item"], NF_1202_CUSTO, tol=0.05)
 
+    nf3611 = ago[(ago["Número"] == "3611") & (ago["Código"].astype(str).str.contains("ETBOPP80185"))]
+    assert len(nf3611) == 1, nf3611
+    assert approx(nf3611.iloc[0]["Custo total item"], NF_3611_CUSTO, tol=0.05)
+
 
 def test_relatorio_inclui_agosto():
     df = calcular_relatorio(FAT)
