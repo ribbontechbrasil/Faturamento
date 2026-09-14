@@ -94,7 +94,7 @@ CUSTO_OVERRIDE = {
     ("3611", "ETBOPP80185"): 5166.90,
     ("3611", "P11074108"): 92.68,
 }
-# Ribbon da FRANCAP na NF 3611: não vinha na planilha de agosto.
+# Ribbon P11074108 da FRANCAP na NF 3611, na planilha de agosto.
 # 30 un × R$ 2,64 (Camila) = R$ 79,20 + imposto R$ 13,48 = custo R$ 92,68.
 NF_3611_P11074108_AGO = {
     "Nota": 3611,
@@ -1171,7 +1171,7 @@ def _agosto_tem_item(df: pd.DataFrame, nf, codigo) -> bool:
 
 
 def _ensure_agosto_item_conferido(df: pd.DataFrame, extra: dict) -> pd.DataFrame:
-    """Inclui item conferido que não veio na planilha de agosto (ex.: P11074108 na NF 3611)."""
+    """Garante o item conferido da NF 3611 (P11074108) se a linha já estiver na planilha, não duplica."""
     if _agosto_tem_item(df, extra.get("Nota"), extra.get("Item")):
         return df
     row = {c: extra[c] if c in extra else None for c in df.columns}

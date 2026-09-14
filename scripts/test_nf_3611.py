@@ -61,6 +61,18 @@ def test_inclui_ribbon_mesmo_sem_linha_na_planilha():
     assert len(out2[out2["Item"].astype(str).str.contains("P11074108")]) == 1
 
 
+def test_planilha_agosto_tem_linha_excel():
+    import pandas as pd
+
+    raw = pd.read_excel(ROOT / "Faturamento Ago 2026.xlsx")
+    rib = raw[(raw["Nota"] == 3611) & raw["Item"].astype(str).str.contains("P11074108")]
+    assert len(rib) == 1, rib
+    r = rib.iloc[0]
+    assert str(r["Cliente"]).upper().find("FRANCAP") >= 0
+    assert approx(r["Venda"], NF_3611_RIBBON_VENDA, tol=0.05)
+    assert approx(r["Custo Total"] + (r["Frete"] or 0) + (r["Impostos"] or 0), NF_3611_RIBBON_CUSTO)
+
+
 def test_planilha_agosto_item():
     ago = load_faturamento_agosto(ROOT)
     etq = _row_etiqueta(ago)
@@ -110,6 +122,7 @@ def pd_to_month(df):
 if __name__ == "__main__":
     test_override_direto()
     test_inclui_ribbon_mesmo_sem_linha_na_planilha()
+    test_planilha_agosto_tem_linha_excel()
     test_planilha_agosto_item()
     test_relatorio_inclui_override()
     print("OK: NF 3611 ETBOPP80185 custo R$ 5.166,90 · P11074108 venda R$ 146,70 custo R$ 92,68")

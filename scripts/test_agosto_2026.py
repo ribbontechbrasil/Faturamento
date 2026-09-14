@@ -15,10 +15,10 @@ from processar_despesas import competencia_from_filename, processar
 ROOT = Path(__file__).resolve().parents[1]
 FAT = ROOT / "Faturamento_RBT (2).xlsx"
 FRETE_AGO = 9102.03
-VENDA_AGO = 304128.84  # + P11074108 da NF 3611 (R$ 146,70)
-IMPOSTO_AGO = 27880.96  # + 13,48 do P11074108 da NF 3611
+VENDA_AGO = 304128.84  # inclui P11074108 da NF 3611 (R$ 146,70)
+IMPOSTO_AGO = 27880.96  # inclui 13,48 do P11074108 da NF 3611
 # Coluna P = só produto (Camila); NF 1180 com unitário 33,60 (não 12,36)
-CUSTO_P_CAMILA = 193805.05  # + 79,20 (30 × 2,64) do P11074108 da NF 3611
+CUSTO_P_CAMILA = 193805.05  # inclui 79,20 (30 × 2,64) do P11074108 da NF 3611
 # NF 1167 rot.PEAD86x165T3: custo conferido R$ 602,40 no lugar de P+frete+imposto
 NF_1167_CUSTO_FORMULA = 659.06  # 500 + 88,94 + 70,12
 NF_1167_CUSTO = 602.40
