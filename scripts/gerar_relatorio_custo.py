@@ -74,11 +74,16 @@ FATURAMENTO_AGO_CANDIDATES = (
     "Faturamento Ago 2026.xlsx",
     "Faturamento_Ago_2026.xlsx",
 )
+# Faturamento (venda bruta) conferido — substitui a coluna Q neste item.
+VENDA_OVERRIDE = {
+    ("3611", "P11074108"): 146.70,
+}
 # Venda líquida conferida — a coluna T de agosto usa Custo Unit. teórico (M),
 # que neste item gera −R$ 1.186,07. Valor correto informado: R$ 1.024,56.
 VENDA_LIQUIDA_OVERRIDE = {
     ("1176", "ETBOPP100X80"): 1024.56,
     ("1180", "300445/110"): 6684.45,
+    ("3611", "P11074108"): 54.02,  # 146,70 − 92,68
 }
 # Custo conferido (substitui P+frete+imposto neste item).
 CUSTO_OVERRIDE = {
@@ -87,6 +92,22 @@ CUSTO_OVERRIDE = {
     ("1190", "ROT0300100039"): 1252.32,
     ("1202", "SC0548"): 122.34,
     ("3611", "ETBOPP80185"): 5166.90,
+    ("3611", "P11074108"): 92.68,
+}
+# Ribbon P11074108 da FRANCAP na NF 3611, na planilha de agosto.
+# 30 un × R$ 2,64 (Camila) = R$ 79,20 + imposto R$ 13,48 = custo R$ 92,68.
+NF_3611_P11074108_AGO = {
+    "Nota": 3611,
+    "Emissão": pd.Timestamp("2026-08-11"),
+    "Cliente": "FRANCAP",
+    "Categoria": "Ribbon",
+    "Item": "P11074108",
+    "nr. rolos": 30.0,
+    "Custo Total": 79.20,
+    "Venda": 146.70,
+    "Frete": 0.0,
+    "Impostos": 13.48,
+    "_venda_liquida_t": 54.02,
 }
 SEGMENTO_AGO = {
     "etiqueta": "Etiqueta Branca",
@@ -1095,6 +1116,11 @@ def _nf_item_override(mapping: dict, nf, codigo) -> float | None:
     return None
 
 
+def venda_override(nf, codigo) -> float | None:
+    """Retorna faturamento (venda bruta) conferido para NF+item, se houver."""
+    return _nf_item_override(VENDA_OVERRIDE, nf, codigo)
+
+
 def venda_liquida_override(nf, codigo) -> float | None:
     """Retorna venda líquida conferida para NF+item, se houver."""
     return _nf_item_override(VENDA_LIQUIDA_OVERRIDE, nf, codigo)
@@ -1129,6 +1155,30 @@ def _agosto_custo_e_liquida(
     if venda_liquida is None and venda is not None and custo_total is not None:
         venda_liquida = venda - custo_total
     return custo_total, venda_liquida
+
+
+def _agosto_tem_item(df: pd.DataFrame, nf, codigo) -> bool:
+    if df is None or df.empty or "Item" not in df.columns:
+        return False
+    nf_key = format_nf_4digitos(nf)
+    ck = code_key(codigo)
+    if nf_key is None or ck is None:
+        return False
+    for _, r in df.iterrows():
+        if format_nf_4digitos(r.get("Nota")) == nf_key and codes_compatible(r.get("Item"), ck):
+            return True
+    return False
+
+
+def _ensure_agosto_item_conferido(df: pd.DataFrame, extra: dict) -> pd.DataFrame:
+    """Garante o item conferido da NF 3611 (P11074108) se a linha já estiver na planilha, não duplica."""
+    if _agosto_tem_item(df, extra.get("Nota"), extra.get("Item")):
+        return df
+    row = {c: extra[c] if c in extra else None for c in df.columns}
+    for k, v in extra.items():
+        row[k] = v
+    row["_nf"] = norm_nf(extra.get("Nota"))
+    return pd.concat([df, pd.DataFrame([row])], ignore_index=True)
 
 
 def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
@@ -1192,17 +1242,21 @@ def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
         df["Cliente"] = df.groupby("_nf")["Cliente"].transform(lambda s: s.ffill().bfill())
     if "Emissão" in df.columns:
         df["Emissão"] = df.groupby("_nf")["Emissão"].transform(lambda s: s.ffill().bfill())
+    df = _ensure_agosto_item_conferido(df, NF_3611_P11074108_AGO)
 
     rows = []
     for _, r in df.iterrows():
+        item = r.get("Item")
+        item_s = None if item is None or (isinstance(item, float) and pd.isna(item)) else str(item).strip()
         venda = br_to_float(r.get("Venda"))
+        ov_venda = venda_override(r.get("Nota"), item_s)
+        if ov_venda is not None:
+            venda = ov_venda
         custo_p = br_to_float(r.get("Custo Total"))
         col_t = br_to_float(r.get("_venda_liquida_t"))
         qtd = br_to_float(r.get("nr. rolos"))
         frete = br_to_float(r.get("Frete")) or 0.0
         imposto = br_to_float(r.get("Impostos")) or 0.0
-        item = r.get("Item")
-        item_s = None if item is None or (isinstance(item, float) and pd.isna(item)) else str(item).strip()
         custo_total, venda_liquida = _agosto_custo_e_liquida(
             custo_p, frete, imposto, col_t, venda
         )
@@ -1214,12 +1268,18 @@ def load_faturamento_agosto(base_dir: Path) -> pd.DataFrame:
         if ov_custo is not None:
             custo_total = ov_custo
             base_custo = "custo_conferido"
+        if ov is None and ov_venda is not None and custo_total is not None and venda is not None:
+            venda_liquida = venda - custo_total
         if venda is None and custo_total is None:
             continue
         perc_lucro = None
         status = STATUS_INCOMPLETO
         if venda is not None and custo_total is not None:
-            perc_lucro = (venda_liquida / custo_total) if custo_total else None
+            perc_lucro = (
+                (venda_liquida / custo_total)
+                if custo_total and venda_liquida is not None
+                else None
+            )
             status = STATUS_OK
         custo_unit = None
         custo_rolo = None

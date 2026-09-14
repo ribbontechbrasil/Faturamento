@@ -8,16 +8,17 @@ from gerar_relatorio_custo import (
     calcular_relatorio,
     load_faturamento_agosto,
     venda_liquida_override,
+    venda_override,
 )
 from processar_despesas import competencia_from_filename, processar
 
 ROOT = Path(__file__).resolve().parents[1]
 FAT = ROOT / "Faturamento_RBT (2).xlsx"
 FRETE_AGO = 9102.03
-VENDA_AGO = 303982.14
-IMPOSTO_AGO = 27867.48
+VENDA_AGO = 304128.84  # inclui P11074108 da NF 3611 (R$ 146,70)
+IMPOSTO_AGO = 27880.96  # inclui 13,48 do P11074108 da NF 3611
 # Coluna P = só produto (Camila); NF 1180 com unitário 33,60 (não 12,36)
-CUSTO_P_CAMILA = 193725.85
+CUSTO_P_CAMILA = 193805.05  # inclui 79,20 (30 × 2,64) do P11074108 da NF 3611
 # NF 1167 rot.PEAD86x165T3: custo conferido R$ 602,40 no lugar de P+frete+imposto
 NF_1167_CUSTO_FORMULA = 659.06  # 500 + 88,94 + 70,12
 NF_1167_CUSTO = 602.40
@@ -28,16 +29,21 @@ NF_1202_CUSTO = 122.34
 NF_1202_VENDA = 156.00
 NF_3611_CUSTO_FORMULA = 3818.40  # 3163,50 + 70 + 584,90
 NF_3611_CUSTO = 5166.90
+NF_3611_RIBBON_VENDA = 146.70
+NF_3611_RIBBON_CUSTO = 92.68
+NF_3611_RIBBON_LIQ = 54.02
+NF_3611_RIBBON_CUSTO_FORMULA = 92.68  # 79,20 + 0 + 13,48
 CUSTO_AGO_AJUSTE_CONFERIDO = (
     NF_1167_CUSTO - NF_1167_CUSTO_FORMULA
     + NF_1190_CUSTO - NF_1190_CUSTO_FORMULA
     + NF_1202_CUSTO - NF_1202_CUSTO_FORMULA
     + NF_3611_CUSTO - NF_3611_CUSTO_FORMULA
+    + NF_3611_RIBBON_CUSTO - NF_3611_RIBBON_CUSTO_FORMULA
 )
 # Custo total = P + frete + imposto + ajustes conferidos
-CUSTO_AGO = 231070.71
-# Coluna T = venda líquida (1176 e 1180 conferidas)
-LIQ_AGO = 72759.06
+CUSTO_AGO = 231163.39  # + 92,68 do P11074108 da NF 3611
+# Coluna T = venda líquida (1176, 1180 e P11074108 da 3611 conferidas)
+LIQ_AGO = 72813.08  # + 54,02 do P11074108 da NF 3611
 INV_FLEXOMETAL = 1774.84
 # NF 1176 BASE ETBOPP100x80
 NF_1176_CUSTO_P = 3112.80
@@ -133,6 +139,14 @@ def test_faturamento_agosto_totais():
     nf3611 = ago[(ago["Número"] == "3611") & (ago["Código"].astype(str).str.contains("ETBOPP80185"))]
     assert len(nf3611) == 1, nf3611
     assert approx(nf3611.iloc[0]["Custo total item"], NF_3611_CUSTO, tol=0.05)
+
+    nf3611_rib = ago[(ago["Número"] == "3611") & (ago["Código"].astype(str).str.contains("P11074108"))]
+    assert len(nf3611_rib) == 1, nf3611_rib
+    assert approx(nf3611_rib.iloc[0]["Valor total venda"], NF_3611_RIBBON_VENDA, tol=0.05)
+    assert approx(nf3611_rib.iloc[0]["Custo total item"], NF_3611_RIBBON_CUSTO, tol=0.05)
+    assert approx(nf3611_rib.iloc[0]["Venda líquida"], NF_3611_RIBBON_LIQ, tol=0.05)
+    assert venda_override(3611, "P11074108") == NF_3611_RIBBON_VENDA
+    assert venda_liquida_override(3611, "P11074108") == NF_3611_RIBBON_LIQ
 
 
 def test_relatorio_inclui_agosto():
