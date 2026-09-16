@@ -20,6 +20,9 @@ def test_print_button_and_css_in_template():
     assert "A4 landscape" in html
     assert "chart-print-img" in html
     assert 'id="printMeta"' in html
+    assert "applyQueryParams" in html
+    assert 'printQ ===' in html or "printQ === '1'" in html
+    assert "body.is-printing .chart-print-img" in html
 
 
 def test_print_expands_tables():

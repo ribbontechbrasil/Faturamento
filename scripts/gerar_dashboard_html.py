@@ -580,6 +580,38 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         color: #14212b;
       }}
     }}
+
+    /* Layout de impressão também na tela (após clicar em Imprimir ou ?print=1) */
+    body.is-printing .no-print,
+    body.is-printing .filters,
+    body.is-printing .manual-banner,
+    body.is-printing .persist-bar,
+    body.is-printing .filter-actions,
+    body.is-printing .faixa-bar,
+    body.is-printing .click-note,
+    body.is-printing .hint,
+    body.is-printing .cost-actions,
+    body.is-printing .cost-input,
+    body.is-printing .hero-actions,
+    body.is-printing #btnPrev,
+    body.is-printing #btnNext,
+    body.is-printing #btnExportItens,
+    body.is-printing #btnLimparCliente {{
+      display: none !important;
+    }}
+    body.is-printing .print-only {{ display: block !important; }}
+    body.is-printing .chart-box canvas {{ display: none !important; }}
+    body.is-printing .chart-print-img {{
+      display: block !important;
+      width: 100%;
+      max-height: 260px;
+      object-fit: contain;
+    }}
+    body.is-printing .table-wrap,
+    body.is-printing .table-wrap.tall-list {{
+      overflow: visible !important;
+      max-height: none !important;
+    }}
   </style>
 </head>
 <body>
@@ -2625,8 +2657,26 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
     document.getElementById('btnDespAll').addEventListener('click', () => setAllChecks('despcat', true));
     document.getElementById('btnDespNone').addEventListener('click', () => setAllChecks('despcat', false));
 
+    function applyQueryParams() {{
+      const q = new URLSearchParams(location.search);
+      const meses = (q.get('meses') || '').split(',').map(s => s.trim()).filter(Boolean);
+      if (meses.length) {{
+        document.querySelectorAll('input[name="mes"]').forEach(i => {{
+          i.checked = meses.includes(i.value);
+        }});
+      }}
+    }}
+
     initFilters();
+    applyQueryParams();
     refresh();
+    const printQ = new URLSearchParams(location.search).get('print');
+    if (printQ === '1' || printQ === 'pdf') {{
+      beginPrintMode();
+      if (printQ === 'pdf') {{
+        requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
+      }}
+    }}
   </script>
 </body>
 </html>
