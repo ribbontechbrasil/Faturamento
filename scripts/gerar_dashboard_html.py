@@ -458,14 +458,140 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       .filter-span-2 {{ grid-column: span 1; }}
       .chart-box, .chart-box.tall {{ height: 250px; }}
     }}
+
+    .hero-actions {{
+      display: flex; flex-wrap: wrap; gap: .55rem; align-items: center;
+      margin-top: .85rem;
+    }}
+    .btn-print {{
+      background: #fff; color: var(--teal-deep);
+      box-shadow: 0 4px 14px rgba(0,0,0,.12);
+    }}
+    .print-only {{ display: none; }}
+    .chart-print-img {{ display: none; width: 100%; height: auto; }}
+
+    @media print {{
+      @page {{ size: A4 landscape; margin: 10mm; }}
+      * {{
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        box-shadow: none !important;
+        animation: none !important;
+        transition: none !important;
+      }}
+      html, body {{
+        background: #fff !important;
+        color: #14212b !important;
+        min-height: 0;
+      }}
+      body::before {{ display: none !important; }}
+      .no-print, .filters, .manual-banner, .persist-bar, .filter-actions,
+      .faixa-bar, .click-note, .hint, .cost-actions, .cost-input,
+      .hero-actions, #btnPrev, #btnNext, #btnExportItens, #btnLimparCliente {{
+        display: none !important;
+      }}
+      .print-only {{ display: block !important; }}
+      .wrap {{
+        width: 100%;
+        max-width: none;
+        margin: 0;
+        padding: 0;
+      }}
+      .hero {{
+        background: #fff !important;
+        color: #14212b !important;
+        border: 1.5px solid #14212b;
+        border-radius: 0;
+        padding: .6rem .8rem .75rem;
+      }}
+      .brand {{ font-size: 1.45rem; color: #14212b; }}
+      .hero p, .period, .kpi span, .kpi em, .print-meta {{
+        color: #14212b !important;
+      }}
+      .period {{
+        border-color: #14212b;
+        margin-top: .4rem;
+      }}
+      .print-meta {{
+        margin: .4rem 0 0;
+        font-size: .82rem;
+        max-width: none;
+      }}
+      .kpi-grid {{
+        grid-template-columns: repeat(7, 1fr) !important;
+        gap: .4rem;
+        margin-top: .6rem;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }}
+      .kpi-grid-info {{
+        grid-template-columns: repeat(2, 1fr) !important;
+      }}
+      .kpi, .kpi.kpi-caixa, .kpi.kpi-info {{
+        background: #f4f7f9 !important;
+        border: 1px solid #c5d0d6 !important;
+        border-radius: 8px;
+        padding: .4rem .5rem;
+        color: #14212b;
+      }}
+      .kpi strong {{ color: #14212b !important; font-size: 1rem; }}
+      section {{
+        margin-top: .7rem;
+        break-inside: auto;
+        page-break-inside: auto;
+      }}
+      .section-head {{ margin-bottom: .35rem; }}
+      .section-head h2 {{ font-size: 1.05rem; }}
+      .section-head p {{ font-size: .8rem; }}
+      .panel {{
+        background: #fff !important;
+        border: 1px solid #c5d0d6;
+        border-radius: 0;
+        padding: .5rem;
+      }}
+      .grid-2 {{
+        grid-template-columns: 1fr 1fr !important;
+        gap: .5rem;
+      }}
+      .chart-box, .chart-box.tall {{
+        height: auto !important;
+        min-height: 0;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }}
+      .chart-box canvas {{ display: none !important; }}
+      .chart-print-img {{
+        display: block !important;
+        width: 100%;
+        max-height: 260px;
+        object-fit: contain;
+      }}
+      .table-wrap, .table-wrap.tall-list {{
+        overflow: visible !important;
+        max-height: none !important;
+      }}
+      table {{ font-size: .72rem; }}
+      th, td {{ padding: .28rem .22rem; }}
+      thead {{ display: table-header-group; }}
+      tfoot {{ display: table-footer-group; }}
+      tr {{ break-inside: avoid; page-break-inside: avoid; }}
+      .footer {{
+        margin-top: .8rem;
+        color: #14212b;
+      }}
+    }}
   </style>
 </head>
 <body>
   <div class="wrap">
     <header class="hero">
       <h1 class="brand">RibbonTech</h1>
-      <p>Dashboard interativo de faturamento, custo e lucro. Use os filtros ou clique nos gráficos para explorar.</p>
+      <p class="no-print">Dashboard interativo de faturamento, custo e lucro. Use os filtros ou clique nos gráficos para explorar.</p>
+      <p class="print-only print-meta" id="printMeta"></p>
       <div class="period">Base completa: {periodo_label}</div>
+      <div class="hero-actions no-print">
+        <button class="btn-print" id="btnImprimir" type="button">Imprimir relatório completo</button>
+      </div>
       <div class="kpi-grid">
         <div class="kpi"><span>Venda</span><strong id="kpiVenda">—</strong><em id="kpiVendaPct">100%</em></div>
         <div class="kpi"><span>Custo</span><strong id="kpiCusto">—</strong><em id="kpiCustoPct">—</em></div>
@@ -563,6 +689,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       <div class="filter-actions">
         <button class="btn-primary" id="btnAplicar" type="button">Aplicar filtros</button>
         <button class="btn-ghost" id="btnLimpar" type="button">Limpar filtros</button>
+        <button class="btn-print" id="btnImprimirFiltros" type="button">Imprimir relatório completo</button>
         <button class="btn-primary" id="btnDownloadHtml" type="button">Baixar dashboard com meus custos</button>
         <button class="btn-ghost" id="btnExportManual" type="button">Exportar CSV</button>
         <button class="btn-ghost" id="btnLoadManual" type="button">Carregar custos salvos</button>
@@ -570,7 +697,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         <input type="file" id="fileManual" accept=".json,application/json,.csv,text/csv" hidden />
         <span class="chip" id="activeChips" hidden></span>
       </div>
-      <p class="hint">Dica: marque um ou mais segmentos/meses nos checkboxes, ou clique nos gráficos para marcar/desmarcar. O segmento Ativo fica sempre fora da análise.</p>
+      <p class="hint">Dica: marque um ou mais segmentos/meses nos checkboxes, ou clique nos gráficos para marcar/desmarcar. O segmento Ativo fica sempre fora da análise. <strong>Imprimir relatório completo</strong> gera PDF/papel com KPIs, gráficos e todas as linhas das tabelas do filtro atual (sem paginação).</p>
       <div class="manual-banner">
         <strong>Por que o custo “some”?</strong> O navegador não grava bem dados em arquivo aberto do computador.
         Depois de informar custos, clique em <strong>Baixar dashboard com meus custos</strong> e use
@@ -884,6 +1011,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       selectedCliente: null,
       clienteLucroFaixa: '',
       tipoEtiqueta: '',
+      printing: false,
       manualCosts: loadManualCosts(),
     }};
 
@@ -1562,6 +1690,8 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       if (state.charts[id]) {{
         state.charts[id].destroy();
       }}
+      config.options = config.options || {{}};
+      if (state.printing) config.options.animation = false;
       state.charts[id] = new Chart(document.getElementById(id), config);
       return state.charts[id];
     }}
@@ -1879,7 +2009,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           return a.nome.localeCompare(b.nome, 'pt-BR');
         }});
 
-      const topN = Number(filters.topN || 0);
+      const topN = state.printing ? 0 : Number(filters.topN || 0);
       const cliView = topN > 0 ? rankedCli.slice(0, topN) : rankedCli;
       const tbCli = document.getElementById('tblCustoRoloCliente');
       tbCli.innerHTML = cliView.map(c => `
@@ -1915,7 +2045,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       }});
 
       const tb = document.getElementById('tblCustoEtiqueta');
-      const maxRows = 250;
+      const maxRows = state.printing ? detalhe.length : 250;
       const pageRows = detalhe.slice(0, maxRows);
       tb.innerHTML = pageRows.map(r => {{
         const tipo = tipoEtiquetaOf(r.mat);
@@ -2011,7 +2141,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
           }}
           return b.venda - a.venda;
         }});
-      const topN = Number(filters.topN || 0);
+      const topN = state.printing ? 0 : Number(filters.topN || 0);
       const ranked = topN > 0 ? allRanked.slice(0, topN) : allRanked;
 
       const clienteAtivo = filters.cliente || '';
@@ -2124,19 +2254,20 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
 
     function renderItens(rows, filters) {{
       const sorted = sortedItens(rows);
-      const pageSize = filters.pageSize;
+      const pageSize = state.printing ? Math.max(sorted.length, 1) : filters.pageSize;
       const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
       if (state.page >= pages) state.page = pages - 1;
       if (state.page < 0) state.page = 0;
       const start = state.page * pageSize;
       const pageRows = sorted.slice(start, start + pageSize);
 
-      document.getElementById('itensMeta').textContent =
-        `${{sorted.length.toLocaleString('pt-BR')}} itens · página ${{state.page + 1}} de ${{pages}} · digite o custo nos incompletos`;
+      document.getElementById('itensMeta').textContent = state.printing
+        ? `${{sorted.length.toLocaleString('pt-BR')}} itens no relatório impresso (todas as linhas)`
+        : `${{sorted.length.toLocaleString('pt-BR')}} itens · página ${{state.page + 1}} de ${{pages}} · digite o custo nos incompletos`;
 
       const tb = document.getElementById('tblItens');
       tb.innerHTML = pageRows.map(r => {{
-        const editable = r.st === 'inc' || r.st === 'manual';
+        const editable = !state.printing && (r.st === 'inc' || r.st === 'manual');
         const costCell = editable
           ? `<div>
               <input class="cost-input" data-id="${{r.id}}" inputmode="decimal"
@@ -2251,6 +2382,72 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       el.innerHTML = chips.map(c => `<span>${{c}}</span>`).join(' · ');
     }}
 
+    function currentPrintMeta(filters) {{
+      const chips = [];
+      if (filters.meses && filters.meses.length) chips.push(`Mês: ${{fmtMonthsList(filters.meses)}}`);
+      else chips.push('Todos os meses da base');
+      if (filters.inicio || filters.fim) chips.push(`Período: ${{fmtDate(filters.inicio)}} → ${{fmtDate(filters.fim)}}`);
+      if (filters.segmentos && filters.segmentos.length) chips.push(`Segmento: ${{filters.segmentos.join(', ')}}`);
+      if (filters.cliente) chips.push(`Cliente: ${{filters.cliente}}`);
+      if (filters.uf) chips.push(`UF: ${{filters.uf}}`);
+      if (filters.material) chips.push(`Material: ${{filters.material}}`);
+      if (filters.busca) chips.push(`Busca: ${{filters.busca}}`);
+      if (filters.despCats && filters.despCats.length) chips.push(`Despesa: ${{filters.despCats.join(', ')}}`);
+      const quando = new Date().toLocaleString('pt-BR');
+      const extra = chips.length ? chips.join(' · ') + '. ' : '';
+      return `Relatório completo impresso em ${{quando}}. ${{extra}}Inclui KPIs, gráficos e todas as linhas das tabelas do filtro atual.`;
+    }}
+
+    function snapshotChartsForPrint() {{
+      document.querySelectorAll('.chart-print-img').forEach(el => el.remove());
+      Object.values(state.charts).forEach(ch => {{
+        if (!ch || !ch.canvas) return;
+        try {{ ch.resize(); }} catch (e) {{}}
+        const canvas = ch.canvas;
+        const img = document.createElement('img');
+        img.className = 'chart-print-img';
+        img.alt = canvas.getAttribute('id') || 'Gráfico';
+        try {{
+          img.src = canvas.toDataURL('image/png', 1.0);
+        }} catch (e) {{
+          return;
+        }}
+        canvas.insertAdjacentElement('afterend', img);
+      }});
+    }}
+
+    function clearChartSnapshots() {{
+      document.querySelectorAll('.chart-print-img').forEach(el => el.remove());
+    }}
+
+    function beginPrintMode() {{
+      if (state.printing) {{
+        snapshotChartsForPrint();
+        return;
+      }}
+      state.printing = true;
+      document.body.classList.add('is-printing');
+      const filters = readFilters();
+      const meta = document.getElementById('printMeta');
+      if (meta) meta.textContent = currentPrintMeta(filters);
+      refresh();
+      snapshotChartsForPrint();
+    }}
+
+    function endPrintMode() {{
+      if (!state.printing) return;
+      state.printing = false;
+      document.body.classList.remove('is-printing');
+      clearChartSnapshots();
+      refresh();
+    }}
+
+    function printRelatorio() {{
+      beginPrintMode();
+      const go = () => window.print();
+      requestAnimationFrame(() => requestAnimationFrame(go));
+    }}
+
     function refresh() {{
       const filters = readFilters();
       state.selectedCliente = filters.cliente || null;
@@ -2294,6 +2491,14 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
 
     document.getElementById('btnAplicar').addEventListener('click', () => {{ state.page = 0; refresh(); }});
     document.getElementById('btnLimpar').addEventListener('click', clearFilters);
+    const bindPrint = (id) => {{
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('click', printRelatorio);
+    }};
+    bindPrint('btnImprimir');
+    bindPrint('btnImprimirFiltros');
+    window.addEventListener('beforeprint', beginPrintMode);
+    window.addEventListener('afterprint', endPrintMode);
     document.getElementById('btnPrev').addEventListener('click', () => {{ state.page -= 1; refresh(); }});
     document.getElementById('btnNext').addEventListener('click', () => {{ state.page += 1; refresh(); }});
     document.getElementById('btnExportItens').addEventListener('click', exportItensExcel);
