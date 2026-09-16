@@ -471,7 +471,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
     .chart-print-img {{ display: none; width: 100%; height: auto; }}
 
     @media print {{
-      @page {{ size: A4 landscape; margin: 10mm; }}
+      @page {{ size: A4 portrait; margin: 10mm; }}
       * {{
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
@@ -518,7 +518,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         max-width: none;
       }}
       .kpi-grid {{
-        grid-template-columns: repeat(7, 1fr) !important;
+        grid-template-columns: repeat(4, 1fr) !important;
         gap: .4rem;
         margin-top: .6rem;
         break-inside: avoid;
@@ -550,12 +550,12 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
         padding: .5rem;
       }}
       .grid-2 {{
-        grid-template-columns: 1fr 1fr !important;
+        grid-template-columns: 1fr !important;
         gap: .5rem;
       }}
       .chart-box, .chart-box.tall {{
-        height: auto !important;
-        min-height: 0;
+        height: 240px !important;
+        min-height: 240px;
         break-inside: avoid;
         page-break-inside: avoid;
       }}
@@ -563,7 +563,7 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       .chart-print-img {{
         display: block !important;
         width: 100%;
-        max-height: 260px;
+        height: 240px;
         object-fit: contain;
       }}
       .table-wrap, .table-wrap.tall-list {{
@@ -600,11 +600,17 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
       display: none !important;
     }}
     body.is-printing .print-only {{ display: block !important; }}
+    body.is-printing .grid-2 {{ grid-template-columns: 1fr !important; }}
+    body.is-printing .chart-box,
+    body.is-printing .chart-box.tall {{
+      height: 240px !important;
+      min-height: 240px;
+    }}
     body.is-printing .chart-box canvas {{ display: none !important; }}
     body.is-printing .chart-print-img {{
       display: block !important;
       width: 100%;
-      max-height: 260px;
+      height: 240px;
       object-fit: contain;
     }}
     body.is-printing .table-wrap,
@@ -2523,8 +2529,10 @@ def render_html(rows: list[dict], periodo_label: str, despesas: list[dict] | Non
 
     function printRelatorio() {{
       beginPrintMode();
-      const go = () => window.print();
-      requestAnimationFrame(() => requestAnimationFrame(go));
+      setTimeout(() => {{
+        snapshotChartsForPrint();
+        window.print();
+      }}, 250);
     }}
 
     function refresh() {{

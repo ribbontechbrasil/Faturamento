@@ -16,7 +16,7 @@ def test_print_button_and_css_in_template():
     assert "snapshotChartsForPrint" in html
     assert "window.print()" in html
     assert "state.printing" in html
-    assert "A4 landscape" in html
+    assert "A4 portrait" in html
     assert "chart-print-img" in html
     assert 'id="printMeta"' in html
     assert "Imprimir relatório do mês" in html
