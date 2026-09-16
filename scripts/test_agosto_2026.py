@@ -192,10 +192,29 @@ def test_despesas_agosto_separa_investimento():
     assert not com.empty
 
 
+def test_despesas_nao_duplicam_julho_no_caixa():
+    """Julho não pode entrar duas vezes (planilha bruta + normalizada)."""
+    from gerar_dashboard_html import load_despesas
+
+    desp = load_despesas()
+    jul = [d for d in desp if d.get("m") == "2026-07"]
+    ago = [d for d in desp if d.get("m") == "2026-08"]
+    assert len(jul) == 35, len(jul)
+    assert len(ago) == 42, len(ago)
+    assert len(desp) == 77, len(desp)
+    jul_opex = sum(d["v"] for d in jul if d.get("tipo") != "investimento")
+    ago_opex = sum(d["v"] for d in ago if d.get("tipo") != "investimento")
+    ago_inv = sum(d["v"] or 0 for d in ago if d.get("tipo") == "investimento")
+    assert approx(jul_opex, 64729.74)
+    assert approx(ago_opex, 58219.41)
+    assert approx(ago_inv, INV_FLEXOMETAL)
+
+
 if __name__ == "__main__":
     test_custo_total_e_produto_mais_frete_mais_imposto()
     test_competencia_arquivo_agosto()
     test_faturamento_agosto_totais()
     test_relatorio_inclui_agosto()
     test_despesas_agosto_separa_investimento()
+    test_despesas_nao_duplicam_julho_no_caixa()
     print("OK: agosto/2026 · T = venda líquida · custo = produto+frete+imposto")

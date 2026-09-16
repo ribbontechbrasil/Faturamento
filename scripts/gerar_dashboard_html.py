@@ -2747,31 +2747,16 @@ def load_despesas(path: Path | None = None) -> list[dict]:
     root = Path(__file__).resolve().parents[1]
     frames: list[pd.DataFrame] = []
     seen: set[str] = set()
-    candidates: list[Path] = []
-    if path:
-        candidates.append(Path(path))
-    candidates.extend(
-        [
-            root / "Despesas_RBT.xlsx",
-            root / "Despesas Ago 2026.xlsx",
-            root / "Despesas_Ago_2026.xlsx",
-            Path("Despesas_RBT.xlsx"),
-            Path("Despesas Ago 2026.xlsx"),
-            Path("Despesas_RBT_Normalizadas.xlsx"),
-            root / "Despesas_RBT_Normalizadas.xlsx",
-        ]
-    )
-    for p in candidates:
+
+    def _add(p: Path) -> None:
         if not p.exists():
-            continue
+            return
         key = str(p.resolve())
         if key in seen:
-            continue
+            return
         seen.add(key)
         try:
             if p.name.endswith("Normalizadas.xlsx"):
-                if frames:
-                    continue
                 df = pd.read_excel(p, sheet_name="Despesas")
             else:
                 df = processar(p, competencia_padrao=competencia_from_filename(p))
@@ -2779,9 +2764,43 @@ def load_despesas(path: Path | None = None) -> list[dict]:
                 frames.append(df)
         except Exception as exc:
             print(f"Aviso ao ler despesas ({p}): {exc}")
+
+    # Planilhas mensais (julho, agosto…). A normalizada só entra se não houver
+    # arquivo mensal — senão julho entra duas vezes e o Caixa fica errado.
+    monthly = [
+        root / "Despesas_RBT.xlsx",
+        root / "Despesas Ago 2026.xlsx",
+        root / "Despesas_Ago_2026.xlsx",
+        Path("Despesas_RBT.xlsx"),
+        Path("Despesas Ago 2026.xlsx"),
+    ]
+    extra = Path(path) if path else None
+    if extra and extra.exists() and "Normalizadas" not in extra.name:
+        monthly.insert(0, extra)
+    for p in monthly:
+        _add(p)
+
+    if not frames:
+        fallbacks = [
+            extra,
+            Path("Despesas_RBT_Normalizadas.xlsx"),
+            root / "Despesas_RBT_Normalizadas.xlsx",
+        ]
+        for p in fallbacks:
+            if p is not None:
+                _add(p)
+
     if not frames:
         return []
     out = pd.concat(frames, ignore_index=True)
+    subset = [
+        c
+        for c in ("Fornecedor", "Histórico", "Valor", "Competência", "Categoria")
+        if c in out.columns
+    ]
+    if subset:
+        out = out.drop_duplicates(subset=subset, keep="first")
+    out = out.reset_index(drop=True)
     out["id"] = range(len(out))
     return build_despesa_rows(out)
 
@@ -2801,7 +2820,8 @@ def main() -> None:
         periodo = "Período não disponível"
 
     rows = build_rows(df)
-    despesas = load_despesas(Path(args.despesas))
+    desp_arg = Path(args.despesas) if args.despesas else None
+    despesas = load_despesas(desp_arg)
     html = render_html(rows, periodo, despesas)
     out = Path(args.output)
     out.write_text(html, encoding="utf-8")
