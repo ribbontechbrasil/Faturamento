@@ -175,6 +175,10 @@
     .pos { color: var(--good); font-weight: 600; }
     .table-wrap { overflow: auto; max-height: 420px; }
     .table-wrap.tall-list { max-height: 560px; }
+    tr.caixa-row-total td {
+      background: rgba(31,111,120,.08);
+      font-weight: 600;
+    }
     td.desc-etiqueta { max-width: 28rem; word-break: break-word; }
     .cost-input {
       width: 110px;
@@ -509,6 +513,30 @@
         <div class="kpi kpi-info"><span>Investimento</span><strong id="kpiInv">—</strong><em id="kpiInvPct">Separado das despesas administrativas</em></div>
       </div>
     </header>
+
+    <section id="secCaixaMes">
+      <div class="section-head">
+        <div>
+          <h2>Caixa mês a mês</h2>
+          <p>Venda líquida − despesas ADM − investimento, acumulado desde jul/2026. O cartão Caixa é a última linha.</p>
+        </div>
+      </div>
+      <div class="panel table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Mês</th>
+              <th>Venda líquida</th>
+              <th>Despesas ADM</th>
+              <th>Investimento</th>
+              <th>Resultado do mês</th>
+              <th>Caixa acumulado</th>
+            </tr>
+          </thead>
+          <tbody id="tblCaixaMes"></tbody>
+        </table>
+      </div>
+    </section>
 
     <section class="filters">
       <h2>Filtros</h2>
@@ -1091,9 +1119,13 @@
       let caixa = 0;
       const serie = [];
       for (const m of months) {
-        const resultadoMes = (liqByMonth.get(m) || 0) - (opexByMonth.get(m) || 0);
-        caixa += resultadoMes - (invByMonth.get(m) || 0);
-        serie.push({ m, resultado: resultadoMes, caixa });
+        const liq = liqByMonth.get(m) || 0;
+        const opex = opexByMonth.get(m) || 0;
+        const inv = invByMonth.get(m) || 0;
+        const resultado = liq - opex;
+        const caixaMes = resultado - inv;
+        caixa += caixaMes;
+        serie.push({ m, liq, opex, inv, resultado, caixaMes, caixa });
       }
       return { caixa, serie };
     }
@@ -1414,10 +1446,35 @@
         : 'Desde jul/2026';
       elCaixaPct.style.color = caixa < 0 ? '#ffd0d0' : 'rgba(247,250,252,.82)';
       state.caixaSerie = serie;
+      renderCaixaMes(serie);
 
       document.getElementById('kpiItens').textContent =
         rows.length.toLocaleString('pt-BR') +
         ` (${ok.toLocaleString('pt-BR')} ok · ${despesas.length} desp.)`;
+    }
+
+    function renderCaixaMes(serie) {
+      const tb = document.getElementById('tblCaixaMes');
+      if (!tb) return;
+      const rows = serie || [];
+      tb.innerHTML = rows.map((s, idx) => {
+        const last = idx === rows.length - 1;
+        let resultadoTxt = money(s.resultado);
+        if (s.inv) {
+          resultadoTxt = `${money(s.resultado)} − ${money(s.inv)} = ${money(s.caixaMes)}`;
+        }
+        const resClass = (s.caixaMes || 0) < 0 ? 'neg' : 'pos';
+        const cxClass = (s.caixa || 0) < 0 ? 'neg' : 'pos';
+        return `
+        <tr class="${last ? 'caixa-row-total' : ''}">
+          <td>${fmtMonthLabel(s.m)}</td>
+          <td>${money(s.liq)}</td>
+          <td>${money(s.opex)}</td>
+          <td>${s.inv ? money(s.inv) : money(0)}</td>
+          <td class="${resClass}">${resultadoTxt}</td>
+          <td class="${cxClass}"><strong>${money(s.caixa)}</strong></td>
+        </tr>`;
+      }).join('') || `<tr><td colspan="6">Sem dados de caixa a partir de jul/2026.</td></tr>`;
     }
 
     function renderDespesas(despesas, filters) {

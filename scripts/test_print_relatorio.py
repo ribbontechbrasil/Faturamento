@@ -24,6 +24,9 @@ def test_print_button_and_css_in_template():
     assert "function monthForPrint()" in html
     assert "Um mês por vez" in html
     assert "A impressão é mês a mês" in html
+    assert 'id="tblCaixaMes"' in html
+    assert "Caixa mês a mês" in html
+    assert "function renderCaixaMes(" in html
     assert "applyQueryParams" in html
     assert 'printQ ===' in html or "printQ === '1'" in html
     assert "body.is-printing .chart-print-img" in html
