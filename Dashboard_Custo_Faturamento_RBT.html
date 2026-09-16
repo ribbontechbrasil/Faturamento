@@ -483,11 +483,11 @@
   <div class="wrap">
     <header class="hero">
       <h1 class="brand">RibbonTech</h1>
-      <p class="no-print">Dashboard interativo de faturamento, custo e lucro. Use os filtros ou clique nos gráficos para explorar.</p>
+      <p class="no-print">Dashboard interativo de faturamento, custo e lucro. A impressão é mês a mês: marque o mês e gere o PDF daquele mês.</p>
       <p class="print-only print-meta" id="printMeta"></p>
-      <div class="period">Base completa: 05/12/2021 a 31/08/2026</div>
+      <div class="period" id="periodLabel">Base completa: 05/12/2021 a 31/08/2026</div>
       <div class="hero-actions no-print">
-        <button class="btn-print" id="btnImprimir" type="button">Imprimir relatório completo</button>
+        <button class="btn-print" id="btnImprimir" type="button">Imprimir relatório do mês</button>
       </div>
       <div class="kpi-grid">
         <div class="kpi"><span>Venda</span><strong id="kpiVenda">—</strong><em id="kpiVendaPct">100%</em></div>
@@ -525,10 +525,10 @@
           </label>
         </div>
         <div class="filter-span-2">
-          <label>Mês selecionado (mais recentes primeiro)
+          <label>Mês (um por vez na impressão · mais recentes primeiro)
             <div class="check-box" id="fMesBox"></div>
             <div class="check-actions">
-              <button type="button" id="btnMesAll">Marcar todos</button>
+              <button type="button" id="btnMesAll">Marcar todos (só na tela)</button>
               <button type="button" id="btnMesNone">Limpar</button>
             </div>
           </label>
@@ -586,7 +586,7 @@
       <div class="filter-actions">
         <button class="btn-primary" id="btnAplicar" type="button">Aplicar filtros</button>
         <button class="btn-ghost" id="btnLimpar" type="button">Limpar filtros</button>
-        <button class="btn-print" id="btnImprimirFiltros" type="button">Imprimir relatório completo</button>
+        <button class="btn-print" id="btnImprimirFiltros" type="button">Imprimir relatório do mês</button>
         <button class="btn-primary" id="btnDownloadHtml" type="button">Baixar dashboard com meus custos</button>
         <button class="btn-ghost" id="btnExportManual" type="button">Exportar CSV</button>
         <button class="btn-ghost" id="btnLoadManual" type="button">Carregar custos salvos</button>
@@ -594,7 +594,7 @@
         <input type="file" id="fileManual" accept=".json,application/json,.csv,text/csv" hidden />
         <span class="chip" id="activeChips" hidden></span>
       </div>
-      <p class="hint">Dica: marque um ou mais segmentos/meses nos checkboxes, ou clique nos gráficos para marcar/desmarcar. O segmento Ativo fica sempre fora da análise. <strong>Imprimir relatório completo</strong> gera PDF/papel com KPIs, gráficos e todas as linhas das tabelas do filtro atual (sem paginação).</p>
+      <p class="hint">Dica: o dashboard abre no mês mais recente. A impressão sai <strong>sempre de um mês</strong> (o marcado; se houver vários, o mais recente). O segmento Ativo fica fora da análise.</p>
       <div class="manual-banner">
         <strong>Por que o custo “some”?</strong> O navegador não grava bem dados em arquivo aberto do computador.
         Depois de informar custos, clique em <strong>Baixar dashboard com meus custos</strong> e use
@@ -909,6 +909,8 @@
       clienteLucroFaixa: '',
       tipoEtiqueta: '',
       printing: false,
+      printRestore: null,
+      periodDefault: null,
       manualCosts: loadManualCosts(),
     };
 
@@ -2279,11 +2281,32 @@
       el.innerHTML = chips.map(c => `<span>${c}</span>`).join(' · ');
     }
 
+    function latestMonthValue() {
+      const inputs = [...document.querySelectorAll('input[name="mes"]')];
+      return inputs.length ? inputs[0].value : null;
+    }
+
+    function monthForPrint() {
+      const selected = checkedValues('mes').slice().sort().reverse();
+      if (selected.length >= 1) return selected[0];
+      return latestMonthValue();
+    }
+
+    function updatePrintButtonLabel() {
+      const mes = monthForPrint();
+      const label = mes
+        ? `Imprimir relatório de ${fmtMonthLabel(mes)}`
+        : 'Imprimir relatório do mês';
+      ['btnImprimir', 'btnImprimirFiltros'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = label;
+      });
+    }
+
     function currentPrintMeta(filters) {
+      const mes = (filters.meses && filters.meses[0]) || monthForPrint();
       const chips = [];
-      if (filters.meses && filters.meses.length) chips.push(`Mês: ${fmtMonthsList(filters.meses)}`);
-      else chips.push('Todos os meses da base');
-      if (filters.inicio || filters.fim) chips.push(`Período: ${fmtDate(filters.inicio)} → ${fmtDate(filters.fim)}`);
+      if (mes) chips.push(`Mês ${fmtMonthLabel(mes)}`);
       if (filters.segmentos && filters.segmentos.length) chips.push(`Segmento: ${filters.segmentos.join(', ')}`);
       if (filters.cliente) chips.push(`Cliente: ${filters.cliente}`);
       if (filters.uf) chips.push(`UF: ${filters.uf}`);
@@ -2292,7 +2315,7 @@
       if (filters.despCats && filters.despCats.length) chips.push(`Despesa: ${filters.despCats.join(', ')}`);
       const quando = new Date().toLocaleString('pt-BR');
       const extra = chips.length ? chips.join(' · ') + '. ' : '';
-      return `Relatório completo impresso em ${quando}. ${extra}Inclui KPIs, gráficos e todas as linhas das tabelas do filtro atual.`;
+      return `Relatório mensal impresso em ${quando}. ${extra}Um mês por vez · KPIs, gráficos e todas as linhas das tabelas.`;
     }
 
     function snapshotChartsForPrint() {
@@ -2322,8 +2345,22 @@
         snapshotChartsForPrint();
         return;
       }
+      const mes = monthForPrint();
+      state.printRestore = {
+        meses: checkedValues('mes'),
+      };
+      if (mes) {
+        document.querySelectorAll('input[name="mes"]').forEach(i => {
+          i.checked = i.value === mes;
+        });
+      }
       state.printing = true;
       document.body.classList.add('is-printing');
+      const period = document.getElementById('periodLabel');
+      if (period) {
+        if (!state.periodDefault) state.periodDefault = period.textContent;
+        period.textContent = mes ? `Mês: ${fmtMonthLabel(mes)}` : (state.periodDefault || period.textContent);
+      }
       const filters = readFilters();
       const meta = document.getElementById('printMeta');
       if (meta) meta.textContent = currentPrintMeta(filters);
@@ -2335,6 +2372,16 @@
       if (!state.printing) return;
       state.printing = false;
       document.body.classList.remove('is-printing');
+      if (state.printRestore) {
+        const set = new Set(state.printRestore.meses || []);
+        const inputs = [...document.querySelectorAll('input[name="mes"]')];
+        if (set.size) {
+          inputs.forEach(i => { i.checked = set.has(i.value); });
+        }
+        state.printRestore = null;
+      }
+      const period = document.getElementById('periodLabel');
+      if (period && state.periodDefault) period.textContent = state.periodDefault;
       clearChartSnapshots();
       refresh();
     }
@@ -2358,6 +2405,7 @@
       renderItens(rows, filters);
       syncFaixaButtons(filters.lucroFaixa);
       updateChips(filters);
+      updatePrintButtonLabel();
     }
 
     function clearFilters() {
@@ -2370,7 +2418,9 @@
       document.getElementById('fCliente').value = '';
       document.getElementById('fUF').value = '';
       document.getElementById('fMaterial').value = '';
-      document.querySelectorAll('input[name="seg"], input[name="mes"], input[name="despcat"]').forEach(i => { i.checked = false; });
+      document.querySelectorAll('input[name="seg"], input[name="despcat"]').forEach(i => { i.checked = false; });
+      const mesInputs = [...document.querySelectorAll('input[name="mes"]')];
+      mesInputs.forEach((i, idx) => { i.checked = idx === 0; });
       state.selectedCliente = null;
       state.clienteLucroFaixa = '';
       state.tipoEtiqueta = '';

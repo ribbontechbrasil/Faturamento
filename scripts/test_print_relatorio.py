@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Impressão do relatório completo no dashboard HTML."""
+"""Impressão do relatório mensal no dashboard HTML."""
 
 from pathlib import Path
 
@@ -10,7 +10,6 @@ def test_print_button_and_css_in_template():
     html = render_html([], "01/07/2026 a 31/08/2026", [])
     assert 'id="btnImprimir"' in html
     assert 'id="btnImprimirFiltros"' in html
-    assert "Imprimir relatório completo" in html
     assert "@media print" in html
     assert "function printRelatorio()" in html
     assert "function beginPrintMode()" in html
@@ -20,6 +19,11 @@ def test_print_button_and_css_in_template():
     assert "A4 landscape" in html
     assert "chart-print-img" in html
     assert 'id="printMeta"' in html
+    assert "Imprimir relatório do mês" in html
+    assert "Imprimir relatório completo" not in html
+    assert "function monthForPrint()" in html
+    assert "Um mês por vez" in html
+    assert "A impressão é mês a mês" in html
     assert "applyQueryParams" in html
     assert 'printQ ===' in html or "printQ === '1'" in html
     assert "body.is-printing .chart-print-img" in html
@@ -33,6 +37,9 @@ def test_print_expands_tables():
     assert "state.printing ? 0 : Number(filters.topN || 0)" in src
     assert "state.printing ? detalhe.length : 250" in src
     assert "!state.printing && (r.st === 'inc' || r.st === 'manual')" in src
+    assert "function monthForPrint()" in src
+    assert "i.checked = i.value === mes" in src
+    assert "updatePrintButtonLabel" in src
 
 
 if __name__ == "__main__":
