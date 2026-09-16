@@ -82,6 +82,7 @@ VENDA_OVERRIDE = {
 # que neste item gera −R$ 1.186,07. Valor correto informado: R$ 1.024,56.
 VENDA_LIQUIDA_OVERRIDE = {
     ("1176", "ETBOPP100X80"): 1024.56,
+    ("1167", "ROTPEAD86X165T3"): 4.82,  # conferida (coluna T teórica era −517,61)
     ("1180", "300445/110"): 6684.45,
     ("3611", "P11074108"): 54.02,  # 146,70 − 92,68
 }

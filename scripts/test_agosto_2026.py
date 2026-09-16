@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Agosto/2026: coluna T = venda líquida; NF 1176 ETBOPP100x80 = R$ 1.024,56."""
+"""Agosto/2026: coluna T = venda líquida; NF 1167 rot.PEAD86x165T3 = R$ 4,82."""
 
 from pathlib import Path
 
@@ -22,6 +22,8 @@ CUSTO_P_CAMILA = 193805.05  # inclui 79,20 (30 × 2,64) do P11074108 da NF 3611
 # NF 1167 rot.PEAD86x165T3: custo conferido R$ 602,40 no lugar de P+frete+imposto
 NF_1167_CUSTO_FORMULA = 659.06  # 500 + 88,94 + 70,12
 NF_1167_CUSTO = 602.40
+NF_1167_LIQ = 4.82  # conferida (coluna T teórica era −517,61)
+NF_1167_LIQ_ERRADA_T = -517.61
 NF_1190_CUSTO_FORMULA = 2128.82  # 1800 + 105,32 + 223,50
 NF_1190_CUSTO = 1252.32
 NF_1202_CUSTO_FORMULA = 162.34  # 108 + 40 + 14,34
@@ -42,8 +44,8 @@ CUSTO_AGO_AJUSTE_CONFERIDO = (
 )
 # Custo total = P + frete + imposto + ajustes conferidos
 CUSTO_AGO = 231163.39  # + 92,68 do P11074108 da NF 3611
-# Coluna T = venda líquida (1176, 1180 e P11074108 da 3611 conferidas)
-LIQ_AGO = 72813.08  # + 54,02 do P11074108 da NF 3611
+# Coluna T = venda líquida (1176, 1167, 1180 e P11074108 da 3611 conferidas)
+LIQ_AGO = 73335.51  # NF 1167 líquida R$ 4,82 no lugar de −517,61
 INV_FLEXOMETAL = 1774.84
 # NF 1176 BASE ETBOPP100x80
 NF_1176_CUSTO_P = 3112.80
@@ -119,6 +121,9 @@ def test_faturamento_agosto_totais():
     assert len(nf1167) == 1, nf1167
     assert nf1167.iloc[0]["Número"] == "1167"
     assert approx(nf1167.iloc[0]["Custo total item"], NF_1167_CUSTO, tol=0.05)
+    assert approx(nf1167.iloc[0]["Venda líquida"], NF_1167_LIQ, tol=0.05)
+    assert not approx(nf1167.iloc[0]["Venda líquida"], NF_1167_LIQ_ERRADA_T, tol=1.0)
+    assert venda_liquida_override(1167, "rot.PEAD86x165T3") == NF_1167_LIQ
 
     nf1180 = ago[(ago["Número"] == "1180") & (ago["Código"].astype(str).str.contains("300445/110"))]
     assert len(nf1180) == 1, nf1180
