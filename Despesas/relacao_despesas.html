@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Relação de despesas (fora do faturamento)</title>
+<style>
+:root { --ink:#1b2a4a; --muted:#5b6b86; --line:#d7e0ee; --bg:#f4f7fb; }
+* { box-sizing:border-box; }
+body { font-family: Calibri, Segoe UI, sans-serif; margin:0; background:var(--bg); color:var(--ink); }
+header { background:#1F4E79; color:#fff; padding:20px 28px; }
+header h1 { margin:0 0 6px; font-size:22px; }
+header p { margin:0; opacity:.92; }
+.aviso { background:#fff3cd; color:#7a5b00; padding:10px 28px; border-bottom:1px solid #f0e0a0; }
+.kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; padding:18px 28px; }
+.kpi { background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px; }
+.kpi b { display:block; font-size:22px; }
+.kpi span { color:var(--muted); font-size:13px; }
+section { padding:0 28px 28px; }
+h2 { font-size:18px; margin:8px 0 10px; }
+.legenda { margin:0 0 10px; font-size:13px; color:var(--muted); }
+.dot { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:4px; vertical-align:middle; }
+table { width:100%; border-collapse:collapse; background:#fff; font-size:13px; }
+th { background:#1F4E79; color:#fff; text-align:left; padding:8px; position:sticky; top:0; }
+td { padding:7px 8px; border-bottom:1px solid var(--line); }
+td.num { text-align:right; white-space:nowrap; }
+tr.match td { background:#e2efda; }
+tr.novo td { background:#fff2cc; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Relação entre a planilha modelo e a planilha nova</h1>
+  <p>Despesas administrativas — assunto separado do faturamento da Ribbon Tech</p>
+</header>
+<div class="aviso">Pasta <b>Despesas/</b>. Não mistura notas, custos de etiqueta nem o dashboard de faturamento.</div>
+<div class="kpis">
+  <div class="kpi"><b>42</b><span>Linhas na planilha nova</span></div>
+  <div class="kpi"><b>25</b><span>Células preenchidas com o modelo</span></div>
+  <div class="kpi"><b>17</b><span>Linhas novas (só em ago/2026)</span></div>
+  <div class="kpi"><b>9</b><span>Só no modelo (não vieram em agosto)</span></div>
+  <div class="kpi"><b>R$ 59.994,25</b><span>Total ago/2026</span></div>
+  <div class="kpi"><b>R$ 53.625,71</b><span>Soma do modelo nas linhas casadas</span></div>
+</div>
+<section>
+  <h2>Planilha nova preenchida</h2>
+  <p class="legenda">
+    <span class="dot" style="background:#e2efda"></span> Encontrado no modelo — coluna <b>Valor no modelo</b> preenchida
+    &nbsp;&nbsp;
+    <span class="dot" style="background:#fff2cc"></span> Novo em ago/2026 — sem par no modelo
+  </p>
+  <table>
+    <thead><tr>
+      <th>Fornecedor</th><th>Histórico</th><th>Valor ago/2026</th>
+      <th>Valor no modelo</th><th>Relação</th><th>Categoria</th><th>Subcategoria</th>
+    </tr></thead>
+    <tbody>
+      <tr class="novo"><td>Assiste/Ocupacional</td><td>Medicina Trabalho</td><td class="num">R$ 272,85</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Pessoal</td><td>Medicina do trabalho</td></tr>
+<tr class="match"><td>Augusto Vianna da Costa Torres</td><td>Cesta básica</td><td class="num">R$ 120,00</td><td class="num">R$ 120,00</td><td>Encontrado no modelo</td><td>Pessoal</td><td>Cesta básica</td></tr>
+<tr class="match"><td>Augusto Vianna da Costa Torres</td><td>Salário</td><td class="num">R$ 1.588,00</td><td class="num">R$ 1.529,00</td><td>Encontrado no modelo</td><td>Pessoal</td><td>Salário</td></tr>
+<tr class="match"><td>Augusto Vianna da Costa Torres</td><td>Vale Transporte Jul/26</td><td class="num">R$ 358,00</td><td class="num">R$ 375,90</td><td>Encontrado no modelo</td><td>Pessoal</td><td>Vale transporte</td></tr>
+<tr class="novo"><td>Augusto Vianna da Costa Torres</td><td>Diferença salarial</td><td class="num">R$ 390,87</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Pessoal</td><td>Salário</td></tr>
+<tr class="match"><td>BDMG</td><td>Empréstimo</td><td class="num">R$ 5.933,24</td><td class="num">R$ 5.920,08</td><td>Encontrado no modelo</td><td>BDMG – Empréstimo</td><td>Empréstimo</td></tr>
+<tr class="match"><td>Bionexo S.A</td><td>Portal</td><td class="num">R$ 120,00</td><td class="num">R$ 280,81</td><td>Encontrado no modelo</td><td>Portal de compra</td><td>Portal de compra</td></tr>
+<tr class="match"><td>BLING - Organisys Software</td><td>Portal</td><td class="num">R$ 120,00</td><td class="num">R$ 120,00</td><td>Encontrado no modelo</td><td>Internet/Sistemas</td><td>Software/ERP</td></tr>
+<tr class="novo"><td>Bruna</td><td>Designer</td><td class="num">R$ 270,00</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Serviços</td><td>Designer</td></tr>
+<tr class="match"><td>Camila Barbosa Tannure</td><td>Cesta básica</td><td class="num">R$ 120,00</td><td class="num">R$ 120,00</td><td>Encontrado no modelo</td><td>Pessoal</td><td>Cesta básica</td></tr>
+<tr class="match"><td>Camila Barbosa Tannure</td><td>Salário</td><td class="num">R$ 2.401,36</td><td class="num">R$ 2.300,00</td><td>Encontrado no modelo</td><td>Pessoal</td><td>Salário</td></tr>
+<tr class="novo"><td>Camila Barbosa Tannure</td><td>Diferença salarial</td><td class="num">R$ 87,36</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Pessoal</td><td>Salário</td></tr>
+<tr class="match"><td>Carlos Roberto Ribeiro de Freitas</td><td>Salário</td><td class="num">R$ 420,00</td><td class="num">R$ 420,00</td><td>Encontrado no modelo</td><td>Pessoal</td><td>Salário</td></tr>
+<tr class="match"><td>Cemig Distribuição S.A</td><td>Energia</td><td class="num">R$ 384,24</td><td class="num">R$ 384,24</td><td>Encontrado no modelo</td><td>Luz</td><td>Cemig</td></tr>
+<tr class="novo"><td>Cert Time</td><td>Certificado</td><td class="num">R$ 120,00</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Outros</td><td>Certificado</td></tr>
+<tr class="novo"><td>Clicheria Blumenau</td><td>Clichê</td><td class="num">R$ 137,34</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Produção</td><td>Clichê</td></tr>
+<tr class="match"><td>Copasa</td><td>Água</td><td class="num">R$ 93,58</td><td class="num">R$ 158,19</td><td>Encontrado no modelo</td><td>Água</td><td>Copasa</td></tr>
+<tr class="match"><td>Daniel Nascimento da Silva Gontijo</td><td>Pro-labore Jun 26</td><td class="num">R$ 13.000,00</td><td class="num">R$ 13.000,00</td><td>Encontrado no modelo</td><td>Pró-labore</td><td>Pró-labore</td></tr>
+<tr class="match"><td>Diego Alexandre Freitas dos Santos</td><td>Cesta básica</td><td class="num">R$ 120,00</td><td class="num">R$ 120,00</td><td>Encontrado no modelo</td><td>Pessoal</td><td>Cesta básica</td></tr>
+<tr class="match"><td>Diego Alexandre Freitas dos Santos</td><td>Salário</td><td class="num">R$ 1.588,00</td><td class="num">R$ 1.529,00</td><td>Encontrado no modelo</td><td>Pessoal</td><td>Salário</td></tr>
+<tr class="match"><td>Diego Alexandre Freitas dos Santos</td><td>Vale transporte Jul/26</td><td class="num">R$ 250,00</td><td class="num">R$ 262,50</td><td>Encontrado no modelo</td><td>Pessoal</td><td>Vale transporte</td></tr>
+<tr class="novo"><td>Diego Alexandre Freitas dos Santos</td><td>Diferença salarial</td><td class="num">R$ 379,00</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Pessoal</td><td>Salário</td></tr>
+<tr class="novo"><td>Enx</td><td>Internet</td><td class="num">R$ 94,90</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Internet/Sistemas</td><td>Internet</td></tr>
+<tr class="novo"><td>Flexometal</td><td>Investimento</td><td class="num">R$ 1.774,84</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Investimento</td><td>Investimento</td></tr>
+<tr class="novo"><td>HDI</td><td>Seguro de Vida</td><td class="num">R$ 232,69</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Pessoal</td><td>Seguro de vida</td></tr>
+<tr class="match"><td>Henrique Vilarino - Corretor</td><td>Aluguel Galpão</td><td class="num">R$ 3.454,47</td><td class="num">R$ 3.454,47</td><td>Encontrado no modelo</td><td>Aluguel</td><td>Aluguel</td></tr>
+<tr class="match"><td>Juscinei Lopes Macedo</td><td>Cesta básica</td><td class="num">R$ 120,00</td><td class="num">R$ 120,00</td><td>Encontrado no modelo</td><td>Pessoal</td><td>Cesta básica</td></tr>
+<tr class="match"><td>Juscinei Lopes Macedo</td><td>Salário</td><td class="num">R$ 2.405,00</td><td class="num">R$ 2.405,00</td><td>Encontrado no modelo</td><td>Pessoal</td><td>Salário</td></tr>
+<tr class="match"><td>Juscinei Lopes Macedo</td><td>Vale Transporte Jul/26</td><td class="num">R$ 250,00</td><td class="num">R$ 250,00</td><td>Encontrado no modelo</td><td>Pessoal</td><td>Vale transporte</td></tr>
+<tr class="match"><td>OM ASSESSORIA E CONSULTORIA CONTABIL LTDA</td><td>Honorários Contábeis - Venda 1889</td><td class="num">R$ 923,48</td><td class="num">R$ 923,48</td><td>Encontrado no modelo</td><td>Contabilidade</td><td>Honorários</td></tr>
+<tr class="match"><td>Receita Federal</td><td>FGTS</td><td class="num">R$ 804,54</td><td class="num">R$ 1.658,59</td><td>Encontrado no modelo</td><td>Pessoal</td><td>Encargos sociais (INSS/FGTS)</td></tr>
+<tr class="novo"><td>Receita Federal</td><td>INSS</td><td class="num">R$ 892,71</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Pessoal</td><td>Encargos sociais (INSS/FGTS)</td></tr>
+<tr class="novo"><td>Receita Estadual</td><td>Difal Negociação</td><td class="num">R$ 727,55</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Difal Negociação</td><td>SEF/MG</td></tr>
+<tr class="match"><td>Renato Barros e Silva</td><td>Pro-labore Jun 26</td><td class="num">R$ 13.000,00</td><td class="num">R$ 13.000,00</td><td>Encontrado no modelo</td><td>Pró-labore</td><td>Pró-labore</td></tr>
+<tr class="match"><td>Rosa Amailes</td><td>Empréstimo</td><td class="num">R$ 1.205,00</td><td class="num">R$ 1.205,00</td><td>Encontrado no modelo</td><td>Empréstimo Rosa Amasiles</td><td>Empréstimo</td></tr>
+<tr class="match"><td>Secretaria de Estado de Fazenda de Minas Gerais</td><td>Difal Antecipação</td><td class="num">R$ 727,55</td><td class="num">R$ 2.230,27</td><td>Encontrado no modelo</td><td>Difal Antecipação</td><td>SEF/MG</td></tr>
+<tr class="match"><td>Secretaria de Estado de Fazenda de Minas Gerais</td><td>Difal Negociação</td><td class="num">R$ 1.739,18</td><td class="num">R$ 1.739,18</td><td>Encontrado no modelo</td><td>Difal Negociação</td><td>SEF/MG</td></tr>
+<tr class="novo"><td>Vendedor 1</td><td>Comissão de Vendas</td><td class="num">R$ 2.500,00</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Comissão de vendas</td><td>Comissão de vendas</td></tr>
+<tr class="novo"><td>Casa dos Rolamentos</td><td>Manutenção e limpeza</td><td class="num">R$ 97,50</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Manutenção e reparos</td><td>Manutenção/Limpeza</td></tr>
+<tr class="novo"><td>DDGraf</td><td>Tinta</td><td class="num">R$ 666,00</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Produção</td><td>Tinta</td></tr>
+<tr class="novo"><td>Casa do EPI</td><td>EPI</td><td class="num">R$ 55,00</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Pessoal</td><td>EPI</td></tr>
+<tr class="novo"><td>Aguarrás</td><td>Manutenção e limpeza</td><td class="num">R$ 50,00</td><td class="num">—</td><td>Novo (não está no modelo)</td><td>Manutenção e reparos</td><td>Manutenção/Limpeza</td></tr>
+    </tbody>
+  </table>
+</section>
+<section>
+  <h2>Só no modelo (não vieram em ago/2026)</h2>
+  <table>
+    <thead><tr>
+      <th>Fornecedor</th><th>Histórico</th><th>Valor no modelo</th>
+      <th>Relação</th><th>Categoria</th><th>Subcategoria</th>
+    </tr></thead>
+    <tbody>
+      <tr class="novo"><td>Camila Barbosa Tannure</td><td>Manutenção e limpeza</td><td class="num">R$ 13,99</td><td>Só no modelo (não veio em ago/2026)</td><td>Manutenção e reparos</td><td>Manutenção/Limpeza</td></tr>
+<tr class="novo"><td>Daniel Nascimento da Silva Gontijo</td><td>Despesas comerciais</td><td class="num">R$ 150,00</td><td>Só no modelo (não veio em ago/2026)</td><td>Visita cliente</td><td>Despesas comerciais</td></tr>
+<tr class="novo"><td>Juscinei Lopes Macedo</td><td>Férias</td><td class="num">R$ 466,67</td><td>Só no modelo (não veio em ago/2026)</td><td>Pessoal</td><td>Salário/Férias</td></tr>
+<tr class="novo"><td>Maria Maira do Carmo Barbosa Carrusca</td><td>Salário</td><td class="num">R$ 1.730,00</td><td>Só no modelo (não veio em ago/2026)</td><td>Pessoal</td><td>Salário</td></tr>
+<tr class="novo"><td>Maria Maira do Carmo Barbosa Carrusca</td><td>Frete</td><td class="num">R$ 34,00</td><td>Só no modelo (não veio em ago/2026)</td><td>Outros</td><td>Frete/Diversos</td></tr>
+<tr class="novo"><td>Maria Maira do Carmo Barbosa Carrusca</td><td>Rescisão</td><td class="num">R$ 4.723,00</td><td>Só no modelo (não veio em ago/2026)</td><td>Pessoal</td><td>Salário/Rescisão</td></tr>
+<tr class="novo"><td>OM Assessoria</td><td>Honorário Contabilidade</td><td class="num">R$ 864,76</td><td>Só no modelo (não veio em ago/2026)</td><td>Contabilidade</td><td>Honorários</td></tr>
+<tr class="novo"><td>Receita Federal</td><td>Difal Negociação</td><td class="num">R$ 768,46</td><td>Só no modelo (não veio em ago/2026)</td><td>Difal Negociação</td><td>SEF/MG</td></tr>
+<tr class="novo"><td>Secretaria de Estado de Fazenda de Minas Gerais</td><td>Simples Nacional</td><td class="num">R$ 12.460,05</td><td>Só no modelo (não veio em ago/2026)</td><td>Fora do caixa (já no imposto)</td><td>EXCLUIR</td></tr>
+    </tbody>
+  </table>
+</section>
+</body>
+</html>
